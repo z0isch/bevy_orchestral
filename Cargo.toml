@@ -1,0 +1,20 @@
+[package]
+name = "bevy_orchestral"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+avian2d = "0.3.1"
+bevy = { version = "0.16.1", features = ["dynamic_linking", "minimp3"] }
+bevy_aseprite_ultra = "0.6.1"
+fraction = "0.15.3"
+gilrs = "0.11.0"
+
+# Enable a small amount of optimization in the dev profile.
+[profile.dev]
+opt-level = 1
+
+# Enable a large amount of optimization in the dev profile for dependencies.
+[profile.dev.package."*"]
+opt-level = 3
+
