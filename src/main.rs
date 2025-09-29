@@ -2,7 +2,7 @@ mod bounce;
 mod metronome;
 pub mod slide;
 
-use bevy::{asset::AssetMetaCheck, prelude::*};
+use bevy::{asset::AssetMetaCheck, input::common_conditions::input_toggle_active, log, prelude::*};
 use bevy_aseprite_ultra::{
     AsepriteUltraPlugin,
     prelude::{Animation, AnimationDirection, AnimationRepeat, AseAnimation},
@@ -13,18 +13,22 @@ use bevy_ecs_tilemap::{
     map::{TilemapId, TilemapSize, TilemapTexture, TilemapTileSize, TilemapType},
     tiles::{TileBundle, TilePos, TileStorage, TileTextureIndex},
 };
+use bevy_egui::EguiPlugin;
+use bevy_inspector_egui::quick::WorldInspectorPlugin;
 use bevy_rapier2d::{
     plugin::{NoUserData, RapierConfiguration, RapierPhysicsPlugin},
     prelude::{
-        Collider, KinematicCharacterController, KinematicCharacterControllerOutput, LockedAxes,
-        RigidBody,
+        ActiveEvents, Collider, CollisionEvent, CollisionGroups, ContactForceEvent, Group,
+        KinematicCharacterController, KinematicCharacterControllerOutput, LockedAxes, RigidBody,
+        Sensor,
     },
+    render::RapierDebugRenderPlugin,
 };
 use fraction::Fraction;
 use rand::{Rng, rng};
 
 use crate::{
-    bounce::{Bounce, TileBounce, bounce_system, initial_tile_bounce, tile_bounce_system},
+    bounce::{Bounce, bounce_system, initial_tile_bounce, tile_bounce_system},
     metronome::{Metronome, initial_metronome, metronome_system, within_nanos_window},
     slide::{Slide, initial_slide, slide_system},
 };
@@ -39,6 +43,10 @@ fn main() {
         .add_plugins(TilemapPlugin)
         .add_plugins(RapierPhysicsPlugin::<NoUserData>::pixels_per_meter(100.))
         //.add_plugins(RapierDebugRenderPlugin::default())
+        .add_plugins(EguiPlugin::default())
+        .add_plugins(
+            WorldInspectorPlugin::new().run_if(input_toggle_active(false, KeyCode::Escape)),
+        )
         .add_systems(Startup, (setup, set_gravity.after(setup)))
         .add_systems(First, metronome_system)
         .add_systems(
@@ -55,6 +63,7 @@ fn main() {
                 player_animation.after(control_player),
             ),
         )
+        .add_systems(Update, display_events)
         .run();
 }
 
@@ -68,7 +77,15 @@ fn set_gravity(rapier_config: Query<&mut RapierConfiguration>) {
     }
 }
 
-fn setup(asset_server: Res<AssetServer>, mut commands: Commands) {
+#[derive(Component)]
+struct Enemy;
+
+fn setup(
+    asset_server: Res<AssetServer>,
+    mut commands: Commands,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut materials: ResMut<Assets<ColorMaterial>>,
+) {
     commands.insert_resource(initial_metronome(101));
     commands.spawn((
         Camera2d,
@@ -79,7 +96,7 @@ fn setup(asset_server: Res<AssetServer>, mut commands: Commands) {
     ));
 
     let texture_handle: Handle<Image> = asset_server.load("sprites/kenney_tiny-town/tilemap.png");
-    let map_size = TilemapSize { x: 100, y: 100 };
+    let map_size = TilemapSize { x: 50, y: 50 };
     let tilemap_entity = commands.spawn_empty().id();
     let mut tile_storage = TileStorage::empty(map_size);
     let tile_size = TilemapTileSize { x: 16.0, y: 16.0 };
@@ -139,11 +156,7 @@ fn setup(asset_server: Res<AssetServer>, mut commands: Commands) {
                         texture_index: TileTextureIndex(29),
                         ..Default::default()
                     },
-                    Transform::from_translation(Vec3::new(
-                        tile_pos_in_world.x,
-                        tile_pos_in_world.y,
-                        1.,
-                    )),
+                    Transform::from_xyz(tile_pos_in_world.x, tile_pos_in_world.y, 1.),
                     RigidBody::Fixed,
                     Collider::ball(tile_size.x / 2.),
                     initial_tile_bounce(TileTextureIndex(132)),
@@ -161,7 +174,7 @@ fn setup(asset_server: Res<AssetServer>, mut commands: Commands) {
         texture: TilemapTexture::Single(texture_handle),
         tile_size,
         anchor: TilemapAnchor::Center,
-        transform: Transform::from_xyz(1., 1., 1.0),
+        transform: Transform::from_xyz(0., 0., 2.0),
         ..Default::default()
     });
 
@@ -179,7 +192,7 @@ fn setup(asset_server: Res<AssetServer>, mut commands: Commands) {
     ));
 
     let player_sprite_scale = 0.15;
-    let mut transform = Transform::from_xyz(0., 0., 1.);
+    let mut transform = Transform::from_xyz(0., 0., 2.);
     transform.scale = Vec3::new(player_sprite_scale, player_sprite_scale, 1.);
     commands.spawn((
         transform,
@@ -195,12 +208,27 @@ fn setup(asset_server: Res<AssetServer>, mut commands: Commands) {
         LockedAxes::ROTATION_LOCKED,
         Collider::round_cuboid(0., 50., 4.75),
         KinematicCharacterController {
-            translation: Some(Vec2::ZERO),
+            filter_groups: Some(CollisionGroups::new(
+                Group::GROUP_1,
+                Group::ALL - Group::GROUP_2,
+            )),
             ..default()
         },
         MovementSpeed(1.),
         Bounce { scale: 1.1 },
         Player,
+        CollisionGroups::new(Group::GROUP_1, Group::ALL - Group::GROUP_2),
+    ));
+
+    commands.spawn((
+        Enemy,
+        Transform::from_xyz(100., 100., 1.),
+        RigidBody::Dynamic,
+        LockedAxes::ROTATION_LOCKED,
+        Collider::ball(20.0),
+        Mesh2d(meshes.add(Circle::new(20.0))),
+        MeshMaterial2d(materials.add(Color::hsva(1., 0.95, 0.7, 1.0))),
+        CollisionGroups::new(Group::GROUP_2, Group::ALL),
     ));
 }
 
@@ -279,6 +307,8 @@ fn player_animation(
 
 fn control_player(
     metronome: Res<Metronome>,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut materials: ResMut<Assets<ColorMaterial>>,
     mut commands: Commands,
     mut query: Query<
         (
@@ -293,10 +323,20 @@ fn control_player(
 ) {
     for (entity, movement_speed, transform, mut kinematic_character_controller) in query.iter_mut()
     {
+        if keyboard_input.just_pressed(KeyCode::KeyJ) {
+            commands.spawn((
+                Mesh2d(meshes.add(Circle::new(50.0))),
+                MeshMaterial2d(materials.add(Color::hsva(0., 0.95, 0.7, 0.8))),
+                Transform::from_xyz(transform.translation.x, transform.translation.y, 1.),
+                (RigidBody::Dynamic, Sensor),
+                ActiveEvents::COLLISION_EVENTS,
+                Collider::ball(50.0),
+            ));
+        }
         if keyboard_input.just_pressed(KeyCode::Space) {
             let grace_period = Fraction::from(90u64 * 1_000_000);
             if within_nanos_window(&metronome, 0, grace_period) {
-                let mut current_direction = Vec3::new(0., 0., 1.);
+                let mut current_direction = Vec2::new(0., 0.);
                 if keyboard_input.pressed(KeyCode::KeyW) {
                     current_direction.y = 1.;
                 }
@@ -311,7 +351,7 @@ fn control_player(
                 }
 
                 commands.entity(entity).insert(initial_slide(
-                    transform.translation + current_direction.normalize() * 150.,
+                    transform.translation.xy() + current_direction.normalize() * 150.,
                     200u128 * 1_000_000,
                 ));
             }
@@ -331,5 +371,22 @@ fn control_player(
             translation.x = movement_speed.0;
         }
         kinematic_character_controller.translation = Some(translation);
+    }
+}
+
+fn display_events(
+    mut collision_events: EventReader<CollisionEvent>,
+    enemy_query: Query<Entity, With<Enemy>>,
+    mut commands: Commands,
+) {
+    for collision_event in collision_events.read() {
+        match collision_event {
+            CollisionEvent::Started(entity, _, _) => {
+                if let Ok(entity) = enemy_query.get(*entity) {
+                    commands.entity(entity).despawn();
+                }
+            }
+            CollisionEvent::Stopped(_, _, _) => {}
+        }
     }
 }

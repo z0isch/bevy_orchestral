@@ -5,8 +5,10 @@ edition = "2024"
 
 [dependencies]
 bevy = { version = "0.16.1", features = ["dynamic_linking"] }
+bevy-inspector-egui = "0.33.1"
 bevy_aseprite_ultra = "0.6.1"
 bevy_ecs_tilemap = "0.16.0"
+bevy_egui = "0.36.0"
 bevy_rapier2d = {version ="0.31.0", features = ["debug-render-2d"]}
 fraction = "0.15.3"
 getrandom = {version = "0.3.3", features = ["wasm_js"]}
