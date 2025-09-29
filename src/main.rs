@@ -2,10 +2,6 @@ mod bounce;
 mod metronome;
 pub mod slide;
 
-use avian2d::{
-    PhysicsPlugins,
-    prelude::{LinearVelocity, RigidBody},
-};
 use bevy::{asset::AssetMetaCheck, prelude::*};
 use bevy_aseprite_ultra::{
     AsepriteUltraPlugin,
@@ -17,11 +13,18 @@ use bevy_ecs_tilemap::{
     map::{TilemapId, TilemapSize, TilemapTexture, TilemapTileSize, TilemapType},
     tiles::{TileBundle, TilePos, TileStorage, TileTextureIndex},
 };
+use bevy_rapier2d::{
+    plugin::{NoUserData, RapierConfiguration, RapierPhysicsPlugin},
+    prelude::{
+        Collider, KinematicCharacterController, KinematicCharacterControllerOutput, LockedAxes,
+        RigidBody,
+    },
+};
 use fraction::Fraction;
 use rand::{Rng, rng};
 
 use crate::{
-    bounce::{Bounce, bounce_system},
+    bounce::{Bounce, TileBounce, bounce_system, initial_tile_bounce, tile_bounce_system},
     metronome::{Metronome, initial_metronome, metronome_system, within_nanos_window},
     slide::{Slide, initial_slide, slide_system},
 };
@@ -32,12 +35,16 @@ fn main() {
             meta_check: AssetMetaCheck::Never,
             ..default()
         }))
-        .add_plugins(PhysicsPlugins::default())
         .add_plugins(AsepriteUltraPlugin)
         .add_plugins(TilemapPlugin)
-        .add_systems(Startup, setup)
+        .add_plugins(RapierPhysicsPlugin::<NoUserData>::pixels_per_meter(100.))
+        //.add_plugins(RapierDebugRenderPlugin::default())
+        .add_systems(Startup, (setup, set_gravity.after(setup)))
         .add_systems(First, metronome_system)
-        .add_systems(Update, (update_beat_text, bounce_system))
+        .add_systems(
+            Update,
+            (update_beat_text, bounce_system, tile_bounce_system),
+        )
         .add_systems(Update, toggle_audio)
         .add_systems(
             Update,
@@ -51,15 +58,33 @@ fn main() {
         .run();
 }
 
+fn set_gravity(rapier_config: Query<&mut RapierConfiguration>) {
+    let rapier_config = rapier_config.single_inner();
+    match rapier_config {
+        Ok(mut rapier_config) => rapier_config.gravity = Vec2::ZERO,
+        Err(_) => {
+            println!("No RapierConfiguration found");
+        }
+    }
+}
+
 fn setup(asset_server: Res<AssetServer>, mut commands: Commands) {
     commands.insert_resource(initial_metronome(101));
-    commands.spawn(Camera2d);
-    let texture_handle: Handle<Image> =
-        asset_server.load("sprites/kenney_tiny-town/tilemap.png");
+    commands.spawn((
+        Camera2d,
+        Projection::from(OrthographicProjection {
+            scale: 0.5,
+            ..OrthographicProjection::default_2d()
+        }),
+    ));
 
+    let texture_handle: Handle<Image> = asset_server.load("sprites/kenney_tiny-town/tilemap.png");
     let map_size = TilemapSize { x: 100, y: 100 };
     let tilemap_entity = commands.spawn_empty().id();
     let mut tile_storage = TileStorage::empty(map_size);
+    let tile_size = TilemapTileSize { x: 16.0, y: 16.0 };
+    let grid_size = tile_size.into();
+    let map_type = TilemapType::default();
 
     for x in 0..map_size.x {
         for y in 0..map_size.y {
@@ -80,10 +105,54 @@ fn setup(asset_server: Res<AssetServer>, mut commands: Commands) {
         }
     }
 
-    let tile_size = TilemapTileSize { x: 16.0, y: 16.0 };
-    let grid_size = tile_size.into();
-    let map_type = TilemapType::default();
+    commands.entity(tilemap_entity).insert(TilemapBundle {
+        grid_size,
+        map_type,
+        size: map_size,
+        storage: tile_storage,
+        texture: TilemapTexture::Single(texture_handle.clone()),
+        tile_size,
+        anchor: TilemapAnchor::Center,
+        ..Default::default()
+    });
 
+    // Layer 2
+    let mut tile_storage = TileStorage::empty(map_size);
+    let tilemap_entity = commands.spawn_empty().id();
+
+    for x in 0..map_size.x {
+        for y in 0..map_size.y {
+            let mut rng = rng();
+            if rng.random_range(0..100) > 98 {
+                let tile_pos = TilePos { x, y };
+                let tile_pos_in_world = tile_pos.center_in_world(
+                    &map_size,
+                    &grid_size,
+                    &tile_size,
+                    &map_type,
+                    &TilemapAnchor::Center,
+                );
+                let tile = commands.spawn((
+                    TileBundle {
+                        position: tile_pos,
+                        tilemap_id: TilemapId(tilemap_entity),
+                        texture_index: TileTextureIndex(29),
+                        ..Default::default()
+                    },
+                    Transform::from_translation(Vec3::new(
+                        tile_pos_in_world.x,
+                        tile_pos_in_world.y,
+                        1.,
+                    )),
+                    RigidBody::Fixed,
+                    Collider::ball(tile_size.x / 2.),
+                    initial_tile_bounce(TileTextureIndex(132)),
+                ));
+
+                tile_storage.set(&tile_pos, tile.id());
+            }
+        }
+    }
     commands.entity(tilemap_entity).insert(TilemapBundle {
         grid_size,
         map_type,
@@ -92,6 +161,7 @@ fn setup(asset_server: Res<AssetServer>, mut commands: Commands) {
         texture: TilemapTexture::Single(texture_handle),
         tile_size,
         anchor: TilemapAnchor::Center,
+        transform: Transform::from_xyz(1., 1., 1.0),
         ..Default::default()
     });
 
@@ -107,9 +177,12 @@ fn setup(asset_server: Res<AssetServer>, mut commands: Commands) {
             ..default()
         },
     ));
-    let mut transform = Transform::from_translation(Vec3::new(0., 0., 1.));
-    transform.scale = Vec3::new(0.3, 0.3, 1.);
+
+    let player_sprite_scale = 0.15;
+    let mut transform = Transform::from_xyz(0., 0., 1.);
+    transform.scale = Vec3::new(player_sprite_scale, player_sprite_scale, 1.);
     commands.spawn((
+        transform,
         AseAnimation {
             animation: Animation::tag("idle-right")
                 .with_repeat(AnimationRepeat::Loop)
@@ -118,10 +191,14 @@ fn setup(asset_server: Res<AssetServer>, mut commands: Commands) {
             aseprite: asset_server.load("sprites/maestro.aseprite"),
         },
         Sprite::default(),
-        transform,
-        RigidBody::Dynamic,
-        LinearVelocity(Vec2::new(0., 0.)),
-        MovementSpeed(150.),
+        RigidBody::KinematicVelocityBased,
+        LockedAxes::ROTATION_LOCKED,
+        Collider::round_cuboid(0., 50., 4.75),
+        KinematicCharacterController {
+            translation: Some(Vec2::ZERO),
+            ..default()
+        },
+        MovementSpeed(1.),
         Bounce { scale: 1.1 },
         Player,
     ));
@@ -161,10 +238,21 @@ struct MovementSpeed(f32);
 struct Player;
 
 fn player_animation(
-    mut animation_query: Query<(&mut AseAnimation, &LinearVelocity, &mut Transform), With<Player>>,
+    mut animation_query: Query<
+        (
+            &mut AseAnimation,
+            &KinematicCharacterControllerOutput,
+            &mut Transform,
+        ),
+        With<Player>,
+    >,
 ) {
-    for (mut ase_sprite_animation, velocity, mut transform) in animation_query.iter_mut() {
-        if velocity.x == 0. && velocity.y == 0. {
+    for (mut ase_sprite_animation, kinematic_character_controller_output, mut transform) in
+        animation_query.iter_mut()
+    {
+        let velocity = kinematic_character_controller_output.effective_translation;
+        let near_idle = velocity.length_squared() < 0.1;
+        if near_idle {
             transform.scale.x = transform.scale.x.abs();
             ase_sprite_animation.animation.play_loop("idle-right");
         } else {
@@ -193,45 +281,55 @@ fn control_player(
     metronome: Res<Metronome>,
     mut commands: Commands,
     mut query: Query<
-        (Entity, &mut LinearVelocity, &MovementSpeed, &Transform),
+        (
+            Entity,
+            &MovementSpeed,
+            &Transform,
+            &mut KinematicCharacterController,
+        ),
         (With<Player>, Without<Slide>),
     >,
     keyboard_input: Res<ButtonInput<KeyCode>>,
 ) {
-    for (entity, mut velocity, movement_speed, transform) in query.iter_mut() {
+    for (entity, movement_speed, transform, mut kinematic_character_controller) in query.iter_mut()
+    {
         if keyboard_input.just_pressed(KeyCode::Space) {
             let grace_period = Fraction::from(90u64 * 1_000_000);
             if within_nanos_window(&metronome, 0, grace_period) {
+                let mut current_direction = Vec3::new(0., 0., 1.);
+                if keyboard_input.pressed(KeyCode::KeyW) {
+                    current_direction.y = 1.;
+                }
+                if keyboard_input.pressed(KeyCode::KeyS) {
+                    current_direction.y = -1.;
+                }
+                if keyboard_input.pressed(KeyCode::KeyA) {
+                    current_direction.x = -1.;
+                }
+                if keyboard_input.pressed(KeyCode::KeyD) {
+                    current_direction.x = 1.;
+                }
+
                 commands.entity(entity).insert(initial_slide(
-                    transform.translation
-                        + Vec3::new(velocity.x, velocity.y, 0.).normalize() * 150.,
+                    transform.translation + current_direction.normalize() * 150.,
                     200u128 * 1_000_000,
                 ));
             }
         }
 
+        let mut translation = Vec2::ZERO;
         if keyboard_input.pressed(KeyCode::KeyW) {
-            velocity.y = movement_speed.0;
+            translation.y = movement_speed.0;
         }
         if keyboard_input.pressed(KeyCode::KeyS) {
-            velocity.y = -movement_speed.0;
+            translation.y = -movement_speed.0;
         }
         if keyboard_input.pressed(KeyCode::KeyA) {
-            velocity.x = -movement_speed.0;
+            translation.x = -movement_speed.0;
         }
         if keyboard_input.pressed(KeyCode::KeyD) {
-            velocity.x = movement_speed.0;
+            translation.x = movement_speed.0;
         }
-
-        if keyboard_input.just_released(KeyCode::KeyW)
-            || keyboard_input.just_released(KeyCode::KeyS)
-        {
-            velocity.y = 0.;
-        }
-        if keyboard_input.just_released(KeyCode::KeyA)
-            || keyboard_input.just_released(KeyCode::KeyD)
-        {
-            velocity.x = 0.;
-        }
+        kinematic_character_controller.translation = Some(translation);
     }
 }
