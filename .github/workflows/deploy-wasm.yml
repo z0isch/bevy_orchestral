@@ -41,7 +41,7 @@ jobs:
       - name: Save wasm dist artifact
         uses: actions/upload-artifact@v4
         with:
-          name: web-dist
+          name: dist
           path: dist
           if-no-files-found: error
 
