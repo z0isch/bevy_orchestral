@@ -108,7 +108,7 @@ fn setup(asset_server: Res<AssetServer>, mut commands: Commands) {
         },
     ));
     let mut transform = Transform::from_translation(Vec3::new(0., 0., 1.));
-    transform.scale = Vec3::new(0.25, 0.25, 1.);
+    transform.scale = Vec3::new(0.3, 0.3, 1.);
     commands.spawn((
         AseAnimation {
             animation: Animation::tag("idle-right")
