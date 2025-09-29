@@ -1,9 +1,10 @@
-name: WASM Build, Test, Deploy
+name: WASM Build, Deploy
 
 # Largely taken from
 # https://github.com/kpreid/all-is-cubes/blob/ae36fc248a6e09bb796dc221e6c6255699fda43d/.github/workflows/aic.yml
 
-permissions: {}
+permissions:
+  contents: read
 
 on:
   push:
