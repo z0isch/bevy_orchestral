@@ -5,10 +5,13 @@ edition = "2024"
 
 [dependencies]
 avian2d = "0.3.1"
-bevy = { version = "0.16.1", features = ["dynamic_linking", "minimp3"] }
+bevy = { version = "0.16.1", features = ["dynamic_linking"] }
 bevy_aseprite_ultra = "0.6.1"
+bevy_ecs_tilemap = "0.16.0"
 fraction = "0.15.3"
+getrandom = {version = "0.3.3", features = ["wasm_js"]}
 gilrs = "0.11.0"
+rand = "0.9.2"
 
 # Enable a small amount of optimization in the dev profile.
 [profile.dev]
