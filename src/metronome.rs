@@ -51,3 +51,7 @@ pub fn metronome_system(time: Res<Time>, mut metronome: ResMut<Metronome>) {
         }
     }
 }
+
+pub fn is_down_beat(metronome: &Metronome) -> bool {
+    metronome.beat == 0 || metronome.beat == 4 || metronome.beat == 8 || metronome.beat == 12
+}

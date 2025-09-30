@@ -267,14 +267,11 @@ struct MovementSpeed(f32);
 struct Player;
 
 fn player_animation(
-    mut animation_query: Query<
-        (
-            &mut AseAnimation,
-            &KinematicCharacterControllerOutput,
-            &mut Transform,
-        ),
-        With<Player>,
-    >,
+    mut animation_query: Query<(
+        &mut AseAnimation,
+        &KinematicCharacterControllerOutput,
+        &mut Transform,
+    )>,
 ) {
     for (mut ase_sprite_animation, kinematic_character_controller_output, mut transform) in
         animation_query.iter_mut()
