@@ -5,25 +5,38 @@ use crate::metronome::Metronome;
 
 #[derive(Component)]
 pub struct Bounce {
-    pub scale: f32,
+    scale: f32,
+    initial_scale: Option<Vec3>,
 }
 
-pub fn bounce_system(metronome: Res<Metronome>, mut bouncers: Query<(&mut Transform, &Bounce)>) {
+pub fn initial_bounce(scale: f32) -> Bounce {
+    Bounce {
+        scale,
+        initial_scale: None,
+    }
+}
+
+pub fn bounce_system(
+    metronome: Res<Metronome>,
+    mut bouncers: Query<(&mut Transform, &mut Bounce)>,
+) {
     if metronome.started {
-        for (mut transform, bounce) in bouncers.iter_mut() {
+        for (mut transform, mut bounce) in bouncers.iter_mut() {
+            let initial_scale = *bounce.initial_scale.get_or_insert(transform.scale);
+
             if metronome.is_beat_start_frame {
                 if metronome.beat == 0 {
                     transform.scale *= bounce.scale;
                 }
                 if metronome.beat == 1 {
-                    transform.scale /= bounce.scale;
+                    transform.scale = initial_scale;
                 }
 
                 if metronome.beat == 8 {
                     transform.scale *= bounce.scale;
                 }
                 if metronome.beat == 9 {
-                    transform.scale /= bounce.scale;
+                    transform.scale = initial_scale;
                 }
             }
         }
