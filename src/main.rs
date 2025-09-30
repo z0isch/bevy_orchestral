@@ -59,9 +59,10 @@ fn main() {
             (
                 slide_system,
                 // Give control back to the player as soon as the slide is done
-                control_player.after(slide_system),
-                player_animation.after(control_player),
-            ),
+                control_player,
+                player_animation,
+            )
+                .chain(),
         )
         .add_systems(Update, display_events)
         .run();
