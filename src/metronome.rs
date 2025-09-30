@@ -24,6 +24,16 @@ pub fn nanos_per_beat(bpm: u64) -> Fraction {
     return Fraction::new(60_000_000_000u64, bpm * 4);
 }
 
+pub fn closest_beat(metronome: &Metronome) -> u8 {
+    if metronome.nanos_accumulated < nanos_per_beat(metronome.bpm) / 2 {
+        metronome.beat
+    } else if metronome.beat == 0 {
+        15
+    } else {
+        metronome.beat - 1
+    }
+}
+
 pub fn within_nanos_window(metronome: &Metronome, beat: u8, nanos_window: Fraction) -> bool {
     let shifted = metronome.beat as i8 - beat as i8;
     let on_beat_or_after_beat = shifted >= 0 && shifted <= 8;

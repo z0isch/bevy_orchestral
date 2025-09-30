@@ -33,8 +33,8 @@ use rand::{Rng, rng};
 use crate::{
     bounce::{Bounce, bounce_system, initial_bounce, initial_tile_bounce, tile_bounce_system},
     metronome::{
-        Metronome, down_beats, initial_metronome, is_down_beat, metronome_system, nanos_per_beat,
-        within_nanos_window,
+        Metronome, closest_beat, down_beats, initial_metronome, is_down_beat, metronome_system,
+        nanos_per_beat, within_nanos_window,
     },
     slide::{Slide, initial_slide, slide_system},
 };
@@ -68,7 +68,10 @@ fn main() {
             WorldInspectorPlugin::new().run_if(input_toggle_active(false, KeyCode::Escape)),
         )
         .add_systems(Startup, (setup, set_gravity.after(setup)))
-        .add_systems(First, metronome_system)
+        .add_systems(
+            First,
+            (metronome_system, despawn_after_beats_system).chain(),
+        )
         .add_systems(Update, (update_beat_text, tile_bounce_system))
         .add_systems(Update, toggle_audio)
         .add_systems(
@@ -373,6 +376,7 @@ fn control_player(
                 (RigidBody::Dynamic, Sensor),
                 ActiveEvents::COLLISION_EVENTS,
                 Collider::ball(50.0),
+                initial_despawn_after_beats(1),
             ));
         }
         if keyboard_input.just_pressed(KeyCode::KeyK) {
@@ -509,6 +513,44 @@ fn enemy_movement_system(
                     nanos_per_beat(metronome.bpm).floor().try_into().unwrap(),
                 ));
             }
+        }
+    }
+}
+
+#[derive(Component)]
+struct DespawnAfterBeats {
+    number_of_beats: u8,
+    beat_start: Option<u8>,
+    beats_accumulated: u8,
+}
+
+fn initial_despawn_after_beats(number_of_beats: u8) -> DespawnAfterBeats {
+    DespawnAfterBeats {
+        number_of_beats,
+        beat_start: None,
+        beats_accumulated: 0,
+    }
+}
+
+fn despawn_after_beats_system(
+    mut commands: Commands,
+    metronome: Res<Metronome>,
+    mut query: Query<(Entity, &mut DespawnAfterBeats)>,
+) {
+    for (entity, mut despawn_after_beats) in query.iter_mut() {
+        let beat_start = *despawn_after_beats
+            .beat_start
+            .get_or_insert(closest_beat(&metronome));
+
+        if metronome.is_beat_start_frame {
+            // Don't count the first beat if we started prior to it
+            if !(despawn_after_beats.beats_accumulated == 0 && beat_start == metronome.beat) {
+                despawn_after_beats.beats_accumulated += 1;
+            }
+        }
+
+        if despawn_after_beats.beats_accumulated >= despawn_after_beats.number_of_beats {
+            commands.entity(entity).despawn();
         }
     }
 }
