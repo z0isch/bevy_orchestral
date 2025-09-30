@@ -20,7 +20,7 @@ pub fn initial_metronome(bpm: u64) -> Metronome {
     };
 }
 
-fn nanos_per_beat(bpm: u64) -> Fraction {
+pub fn nanos_per_beat(bpm: u64) -> Fraction {
     return Fraction::new(60_000_000_000u64, bpm * 4);
 }
 
@@ -53,5 +53,9 @@ pub fn metronome_system(time: Res<Time>, mut metronome: ResMut<Metronome>) {
 }
 
 pub fn is_down_beat(metronome: &Metronome) -> bool {
-    metronome.beat == 0 || metronome.beat == 4 || metronome.beat == 8 || metronome.beat == 12
+    down_beats(metronome).contains(&metronome.beat)
+}
+
+pub fn down_beats(_metronome: &Metronome) -> Vec<u8> {
+    vec![0, 4, 8, 12]
 }
