@@ -2,7 +2,7 @@ mod bounce;
 mod metronome;
 pub mod slide;
 
-use bevy::{asset::AssetMetaCheck, input::common_conditions::input_toggle_active, log, prelude::*};
+use bevy::{asset::AssetMetaCheck, input::common_conditions::input_toggle_active, prelude::*};
 use bevy_aseprite_ultra::{
     AsepriteUltraPlugin,
     prelude::{Animation, AnimationDirection, AnimationRepeat, AseAnimation},
@@ -18,7 +18,7 @@ use bevy_inspector_egui::quick::WorldInspectorPlugin;
 use bevy_rapier2d::{
     plugin::{NoUserData, RapierConfiguration, RapierPhysicsPlugin},
     prelude::{
-        ActiveEvents, Collider, CollisionEvent, CollisionGroups, ContactForceEvent, Group,
+        ActiveEvents, Collider, CollisionEvent, CollisionGroups, Group,
         KinematicCharacterController, KinematicCharacterControllerOutput, LockedAxes, RigidBody,
         Sensor,
     },
@@ -28,8 +28,11 @@ use fraction::Fraction;
 use rand::{Rng, rng};
 
 use crate::{
-    bounce::{Bounce, bounce_system, initial_tile_bounce, tile_bounce_system},
-    metronome::{Metronome, initial_metronome, metronome_system, within_nanos_window},
+    bounce::{Bounce, bounce_system, initial_bounce, initial_tile_bounce, tile_bounce_system},
+    metronome::{
+        Metronome, down_beats, initial_metronome, is_down_beat, metronome_system, nanos_per_beat,
+        within_nanos_window,
+    },
     slide::{Slide, initial_slide, slide_system},
 };
 
@@ -49,10 +52,7 @@ fn main() {
         )
         .add_systems(Startup, (setup, set_gravity.after(setup)))
         .add_systems(First, metronome_system)
-        .add_systems(
-            Update,
-            (update_beat_text, bounce_system, tile_bounce_system),
-        )
+        .add_systems(Update, (update_beat_text, tile_bounce_system))
         .add_systems(Update, toggle_audio)
         .add_systems(
             Update,
@@ -60,10 +60,13 @@ fn main() {
                 slide_system,
                 // Give control back to the player as soon as the slide is done
                 control_player,
+                bounce_system,
+                spawn_enemy_system,
                 player_animation,
             )
                 .chain(),
         )
+        .add_systems(Update, enemy_movement_system)
         .add_systems(Update, display_events)
         .run();
 }
@@ -81,13 +84,16 @@ fn set_gravity(rapier_config: Query<&mut RapierConfiguration>) {
 #[derive(Component)]
 struct Enemy;
 
-fn setup(
-    asset_server: Res<AssetServer>,
-    mut commands: Commands,
-    mut meshes: ResMut<Assets<Mesh>>,
-    mut materials: ResMut<Assets<ColorMaterial>>,
-) {
+#[derive(Resource)]
+struct EnemySpawnTimer {
+    timer: Timer,
+}
+
+fn setup(asset_server: Res<AssetServer>, mut commands: Commands) {
     commands.insert_resource(initial_metronome(101));
+    commands.insert_resource(EnemySpawnTimer {
+        timer: Timer::from_seconds(3., TimerMode::Repeating),
+    });
     commands.spawn((
         Camera2d,
         Projection::from(OrthographicProjection {
@@ -216,20 +222,9 @@ fn setup(
             ..default()
         },
         MovementSpeed(1.),
-        Bounce { scale: 1.1 },
+        initial_bounce(1.1),
         Player,
         CollisionGroups::new(Group::GROUP_1, Group::ALL - Group::GROUP_2),
-    ));
-
-    commands.spawn((
-        Enemy,
-        Transform::from_xyz(100., 100., 1.),
-        RigidBody::Dynamic,
-        LockedAxes::ROTATION_LOCKED,
-        Collider::ball(20.0),
-        Mesh2d(meshes.add(Circle::new(20.0))),
-        MeshMaterial2d(materials.add(Color::hsva(1., 0.95, 0.7, 1.0))),
-        CollisionGroups::new(Group::GROUP_2, Group::ALL),
     ));
 }
 
@@ -331,9 +326,13 @@ fn control_player(
                 Collider::ball(50.0),
             ));
         }
-        if keyboard_input.just_pressed(KeyCode::Space) {
+        if keyboard_input.just_pressed(KeyCode::KeyK) {
             let grace_period = Fraction::from(90u64 * 1_000_000);
-            if within_nanos_window(&metronome, 0, grace_period) {
+
+            if down_beats(&metronome)
+                .iter()
+                .any(|&beat| within_nanos_window(&metronome, beat, grace_period))
+            {
                 let mut current_direction = Vec2::new(0., 0.);
                 if keyboard_input.pressed(KeyCode::KeyW) {
                     current_direction.y = 1.;
@@ -350,7 +349,7 @@ fn control_player(
 
                 commands.entity(entity).insert(initial_slide(
                     transform.translation.xy() + current_direction.normalize() * 150.,
-                    200u128 * 1_000_000,
+                    nanos_per_beat(metronome.bpm).floor().try_into().unwrap(),
                 ));
             }
         }
@@ -385,6 +384,79 @@ fn display_events(
                 }
             }
             CollisionEvent::Stopped(_, _, _) => {}
+        }
+    }
+}
+
+fn spawn_enemy_system(
+    mut commands: Commands,
+    mut spawn_timer: ResMut<EnemySpawnTimer>,
+    time: Res<Time>,
+    metronome: Res<Metronome>,
+    player_query: Query<&Transform, With<Player>>,
+    asset_server: Res<AssetServer>,
+) {
+    if !metronome.started {
+        return;
+    }
+
+    spawn_timer.timer.tick(time.delta());
+
+    if spawn_timer.timer.just_finished() {
+        if let Ok(player_transform) = player_query.single() {
+            let mut rng = rng();
+            let angle = rng.random::<f32>() * std::f32::consts::TAU;
+            let offset = Vec2::new(angle.cos(), angle.sin()) * 100.0;
+            let spawn_pos = player_transform.translation.xy() + offset;
+
+            let enemy_sprite_scale = 0.3;
+            let mut transform = Transform::from_xyz(spawn_pos.x, spawn_pos.y, 2.);
+            transform.scale = Vec3::new(enemy_sprite_scale, enemy_sprite_scale, 1.);
+
+            commands.spawn((
+                transform,
+                AseAnimation {
+                    animation: Animation::tag("idle-right")
+                        .with_repeat(AnimationRepeat::Loop)
+                        .with_direction(AnimationDirection::Forward)
+                        .with_speed(1.2),
+                    aseprite: asset_server.load("sprites/skunk.aseprite"),
+                },
+                Sprite::default(),
+                RigidBody::KinematicVelocityBased,
+                LockedAxes::ROTATION_LOCKED,
+                Collider::ball(45.0 / 2.0),
+                KinematicCharacterController::default(),
+                MovementSpeed(30.),
+                Enemy,
+                initial_bounce(1.2),
+                CollisionGroups::new(Group::GROUP_2, Group::ALL),
+            ));
+        }
+    }
+}
+
+fn enemy_movement_system(
+    mut commands: Commands,
+    metronome: Res<Metronome>,
+    player_query: Query<&Transform, With<Player>>,
+    mut enemy_query: Query<(Entity, &Transform, &MovementSpeed), With<Enemy>>,
+) {
+    if metronome.started && metronome.is_beat_start_frame && is_down_beat(&metronome) {
+        if let Ok(player_transform) = player_query.single() {
+            for (entity, enemy_transform, movement_speed) in enemy_query.iter_mut() {
+                let mut rng = rng();
+                let speed_variation = rng.random_range(-0.2..=0.2);
+                let varied_velocity = movement_speed.0 * (1.0 + speed_variation);
+                let direction = (player_transform.translation.xy()
+                    - enemy_transform.translation.xy())
+                .normalize();
+
+                commands.entity(entity).insert(initial_slide(
+                    enemy_transform.translation.xy() + direction * varied_velocity,
+                    nanos_per_beat(metronome.bpm).floor().try_into().unwrap(),
+                ));
+            }
         }
     }
 }
