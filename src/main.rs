@@ -2,7 +2,10 @@ mod bounce;
 mod metronome;
 pub mod slide;
 
-use bevy::{asset::AssetMetaCheck, input::common_conditions::input_toggle_active, prelude::*};
+use bevy::{
+    asset::AssetMetaCheck, input::common_conditions::input_toggle_active, log, prelude::*,
+    window::WindowResolution,
+};
 use bevy_aseprite_ultra::{
     AsepriteUltraPlugin,
     prelude::{Animation, AnimationDirection, AnimationRepeat, AseAnimation},
@@ -36,12 +39,26 @@ use crate::{
     slide::{Slide, initial_slide, slide_system},
 };
 
+const WINDOW_WIDTH: f32 = 1024.;
+const WINDOW_HEIGHT: f32 = 800.;
+
 fn main() {
     App::new()
-        .add_plugins(DefaultPlugins.set(AssetPlugin {
-            meta_check: AssetMetaCheck::Never,
-            ..default()
-        }))
+        .add_plugins(
+            DefaultPlugins
+                .set(AssetPlugin {
+                    meta_check: AssetMetaCheck::Never,
+                    ..default()
+                })
+                .set(WindowPlugin {
+                    primary_window: Some(Window {
+                        resolution: WindowResolution::new(WINDOW_WIDTH, WINDOW_HEIGHT)
+                            .with_scale_factor_override(1.0),
+                        ..default()
+                    }),
+                    ..default()
+                }),
+        )
         .add_plugins(AsepriteUltraPlugin)
         .add_plugins(TilemapPlugin)
         .add_plugins(RapierPhysicsPlugin::<NoUserData>::pixels_per_meter(100.))
@@ -92,7 +109,7 @@ struct EnemySpawnTimer {
 fn setup(asset_server: Res<AssetServer>, mut commands: Commands) {
     commands.insert_resource(initial_metronome(101));
     commands.insert_resource(EnemySpawnTimer {
-        timer: Timer::from_seconds(3., TimerMode::Repeating),
+        timer: Timer::from_seconds(0.1, TimerMode::Repeating),
     });
     commands.spawn((
         Camera2d,
@@ -102,11 +119,14 @@ fn setup(asset_server: Res<AssetServer>, mut commands: Commands) {
         }),
     ));
 
+    let tile_size = TilemapTileSize { x: 16.0, y: 16.0 };
     let texture_handle: Handle<Image> = asset_server.load("sprites/kenney_tiny-town/tilemap.png");
-    let map_size = TilemapSize { x: 50, y: 50 };
+    let map_size = TilemapSize {
+        x: (WINDOW_WIDTH / tile_size.x / 2.0) as u32,
+        y: (WINDOW_HEIGHT / tile_size.y / 2.0) as u32,
+    };
     let tilemap_entity = commands.spawn_empty().id();
     let mut tile_storage = TileStorage::empty(map_size);
-    let tile_size = TilemapTileSize { x: 16.0, y: 16.0 };
     let grid_size = tile_size.into();
     let map_type = TilemapType::default();
 
@@ -114,15 +134,18 @@ fn setup(asset_server: Res<AssetServer>, mut commands: Commands) {
         for y in 0..map_size.y {
             let tile_pos = TilePos { x, y };
             let mut rng = rng();
-            let random_texture_index = if rng.random_range(0..100) < 95 {
+            let texture_index = if rng.random_range(0..100) < 95 {
                 0
+            } else if rng.random_range(0..100) < 90 {
+                1
             } else {
-                if rng.random_range(0..100) < 90 { 1 } else { 2 }
+                2
             };
+
             let tile = commands.spawn(TileBundle {
                 position: tile_pos,
                 tilemap_id: TilemapId(tilemap_entity),
-                texture_index: TileTextureIndex(random_texture_index),
+                texture_index: TileTextureIndex(texture_index),
                 ..Default::default()
             });
             tile_storage.set(&tile_pos, tile.id());
@@ -147,29 +170,55 @@ fn setup(asset_server: Res<AssetServer>, mut commands: Commands) {
     for x in 0..map_size.x {
         for y in 0..map_size.y {
             let mut rng = rng();
-            if rng.random_range(0..100) > 98 {
-                let tile_pos = TilePos { x, y };
-                let tile_pos_in_world = tile_pos.center_in_world(
-                    &map_size,
-                    &grid_size,
-                    &tile_size,
-                    &map_type,
-                    &TilemapAnchor::Center,
-                );
-                let tile = commands.spawn((
-                    TileBundle {
-                        position: tile_pos,
-                        tilemap_id: TilemapId(tilemap_entity),
-                        texture_index: TileTextureIndex(29),
-                        ..Default::default()
-                    },
-                    Transform::from_xyz(tile_pos_in_world.x, tile_pos_in_world.y, 1.),
-                    RigidBody::Fixed,
-                    Collider::ball(tile_size.x / 2.),
-                    initial_tile_bounce(TileTextureIndex(132)),
-                ));
-
-                tile_storage.set(&tile_pos, tile.id());
+            let tile_pos = TilePos { x, y };
+            let texture_index = if x == 0 && y == 0 {
+                Some((68, None)) // bottom-left corner
+            } else if x == map_size.x - 1 && y == 0 {
+                Some((70, None)) // bottom-right corner
+            } else if x == 0 && y == map_size.y - 1 {
+                Some((44, None)) // top-left corner
+            } else if x == map_size.x - 1 && y == map_size.y - 1 {
+                Some((46, None)) // top-right corner
+            } else if y == 0 {
+                Some((45, None)) // bottom edge
+            } else if y == map_size.y - 1 {
+                Some((45, None)) // top edge
+            } else if x == 0 || x == map_size.x - 1 {
+                Some((58, None)) // left or right edge
+            } else if rng.random_range(0..100) > 97 {
+                Some((29, Some(132)))
+            } else {
+                None
+            };
+            match texture_index {
+                Some((texture_index, tile_bounce)) => {
+                    let tile_pos_in_world = tile_pos.center_in_world(
+                        &map_size,
+                        &grid_size,
+                        &tile_size,
+                        &map_type,
+                        &TilemapAnchor::Center,
+                    );
+                    let mut tile = commands.spawn((
+                        TileBundle {
+                            position: tile_pos,
+                            tilemap_id: TilemapId(tilemap_entity),
+                            texture_index: TileTextureIndex(texture_index),
+                            ..Default::default()
+                        },
+                        Transform::from_xyz(tile_pos_in_world.x, tile_pos_in_world.y, 1.),
+                        RigidBody::Fixed,
+                        Collider::ball(tile_size.x / 2.),
+                    ));
+                    match tile_bounce {
+                        Some(tile_bounce) => {
+                            tile.insert(initial_tile_bounce(TileTextureIndex(tile_bounce)));
+                        }
+                        None => {}
+                    }
+                    tile_storage.set(&tile_pos, tile.id());
+                }
+                None => {}
             }
         }
     }
@@ -378,9 +427,12 @@ fn display_events(
 ) {
     for collision_event in collision_events.read() {
         match collision_event {
-            CollisionEvent::Started(entity, _, _) => {
+            CollisionEvent::Started(entity, entity2, flags) => {
                 if let Ok(entity) = enemy_query.get(*entity) {
                     commands.entity(entity).despawn();
+                }
+                if let Ok(entity2) = enemy_query.get(*entity2) {
+                    commands.entity(entity2).despawn();
                 }
             }
             CollisionEvent::Stopped(_, _, _) => {}
@@ -419,7 +471,7 @@ fn spawn_enemy_system(
                     animation: Animation::tag("idle-right")
                         .with_repeat(AnimationRepeat::Loop)
                         .with_direction(AnimationDirection::Forward)
-                        .with_speed(1.2),
+                        .with_speed(0.5),
                     aseprite: asset_server.load("sprites/skunk.aseprite"),
                 },
                 Sprite::default(),
