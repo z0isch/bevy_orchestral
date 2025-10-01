@@ -2,6 +2,8 @@ mod bounce;
 mod metronome;
 pub mod slide;
 
+use std::time::Duration;
+
 use bevy::{
     asset::AssetMetaCheck, input::common_conditions::input_toggle_active, log, prelude::*,
     window::WindowResolution,
@@ -21,9 +23,8 @@ use bevy_inspector_egui::quick::WorldInspectorPlugin;
 use bevy_rapier2d::{
     plugin::{NoUserData, RapierConfiguration, RapierPhysicsPlugin},
     prelude::{
-        ActiveEvents, Collider, CollisionEvent, CollisionGroups, Group,
+        ActiveEvents, Collider, CollisionEvent, CollisionGroups, Damping, Group,
         KinematicCharacterController, KinematicCharacterControllerOutput, LockedAxes, RigidBody,
-        Sensor,
     },
 };
 use fraction::Fraction;
@@ -32,8 +33,8 @@ use rand::{Rng, rng};
 use crate::{
     bounce::{bounce_system, initial_bounce, initial_tile_bounce, tile_bounce_system},
     metronome::{
-        Metronome, closest_beat, down_beats, initial_metronome, is_down_beat, metronome_system,
-        nanos_per_beat, within_nanos_window,
+        Metronome, down_beats, initial_metronome, is_down_beat, metronome_system, nanos_per_beat,
+        within_nanos_window,
     },
     slide::{Slide, initial_slide, slide_system},
 };
@@ -67,10 +68,7 @@ fn main() {
             WorldInspectorPlugin::new().run_if(input_toggle_active(false, KeyCode::Escape)),
         )
         .add_systems(Startup, (setup, set_gravity.after(setup)))
-        .add_systems(
-            First,
-            (metronome_system, despawn_after_beats_system).chain(),
-        )
+        .add_systems(First, metronome_system)
         .add_systems(Update, tile_bounce_system)
         .add_systems(Update, toggle_audio)
         .add_systems(
@@ -87,6 +85,7 @@ fn main() {
         )
         .add_systems(Update, enemy_movement_system)
         .add_systems(Update, display_events)
+        .add_systems(Update, aoe_system)
         .run();
 }
 
@@ -111,7 +110,7 @@ struct EnemySpawnTimer {
 fn setup(asset_server: Res<AssetServer>, mut commands: Commands) {
     commands.insert_resource(initial_metronome(101));
     commands.insert_resource(EnemySpawnTimer {
-        timer: Timer::from_seconds(0.1, TimerMode::Repeating),
+        timer: Timer::from_seconds(1., TimerMode::Repeating),
     });
     commands.spawn((
         Camera2d,
@@ -266,7 +265,6 @@ fn setup(asset_server: Res<AssetServer>, mut commands: Commands) {
         MovementSpeed(1.),
         initial_bounce(1.1),
         Player,
-        CollisionGroups::new(Group::GROUP_1, Group::ALL - Group::GROUP_2),
     ));
 }
 
@@ -333,9 +331,9 @@ fn player_animation(
 
 fn control_player(
     metronome: Res<Metronome>,
+    mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<ColorMaterial>>,
-    mut commands: Commands,
     mut query: Query<
         (
             Entity,
@@ -350,22 +348,23 @@ fn control_player(
     for (entity, movement_speed, transform, mut kinematic_character_controller) in query.iter_mut()
     {
         if keyboard_input.just_pressed(KeyCode::KeyJ) {
-            let grace_period = Fraction::from(90u64 * 1_000_000);
+            // let grace_period = Fraction::from(90u64 * 1_000_000);
 
-            if down_beats(&metronome)
-                .iter()
-                .any(|&beat| within_nanos_window(&metronome, beat, grace_period))
-            {
-                commands.spawn((
-                    Mesh2d(meshes.add(Circle::new(50.0))),
-                    MeshMaterial2d(materials.add(Color::hsva(0., 0.95, 0.7, 0.8))),
-                    Transform::from_xyz(transform.translation.x, transform.translation.y, 1.),
-                    (RigidBody::Dynamic, Sensor),
-                    ActiveEvents::COLLISION_EVENTS,
-                    Collider::ball(50.0),
-                    initial_despawn_after_beats(1),
-                ));
-            }
+            // if down_beats(&metronome)
+            //     .iter()
+            //     .any(|&beat| within_nanos_window(&metronome, beat, grace_period))
+            // {
+
+            commands.spawn(aoe_bundle(
+                &mut meshes,
+                &mut materials,
+                &transform,
+                &metronome,
+                30.0,
+                75.0,
+                2,
+            ));
+            //}
         }
         if keyboard_input.just_pressed(KeyCode::KeyK) {
             let grace_period = Fraction::from(90u64 * 1_000_000);
@@ -420,12 +419,13 @@ fn display_events(
     for collision_event in collision_events.read() {
         match collision_event {
             CollisionEvent::Started(entity, entity2, _) => {
-                if let Ok(entity) = enemy_query.get(*entity) {
-                    commands.entity(entity).despawn();
-                }
-                if let Ok(entity2) = enemy_query.get(*entity2) {
-                    commands.entity(entity2).despawn();
-                }
+                //log::info!("Collision started: {} and {}", entity, entity2);
+                // if let Ok(entity) = enemy_query.get(*entity) {
+                //     commands.entity(entity).despawn();
+                // }
+                // if let Ok(entity2) = enemy_query.get(*entity2) {
+                //     commands.entity(entity2).despawn();
+                // }
             }
             CollisionEvent::Stopped(_, _, _) => {}
         }
@@ -467,10 +467,14 @@ fn spawn_enemy_system(
                     aseprite: asset_server.load("sprites/skunk.aseprite"),
                 },
                 Sprite::default(),
-                RigidBody::KinematicVelocityBased,
+                RigidBody::Dynamic,
                 LockedAxes::ROTATION_LOCKED,
                 Collider::ball(45.0 / 2.0),
                 KinematicCharacterController::default(),
+                Damping {
+                    linear_damping: 10.,
+                    angular_damping: 0.,
+                },
                 MovementSpeed(30.),
                 Enemy,
                 initial_bounce(1.2),
@@ -506,39 +510,90 @@ fn enemy_movement_system(
 }
 
 #[derive(Component)]
-struct DespawnAfterBeats {
-    number_of_beats: u8,
-    beat_start: Option<u8>,
-    beats_accumulated: u8,
+struct AOE {
+    initial_radius: f32,
+    final_radius: f32,
+    for_num_beats: u8,
+    num_beats_elapsed: u8,
+    timer: Timer,
 }
 
-fn initial_despawn_after_beats(number_of_beats: u8) -> DespawnAfterBeats {
-    DespawnAfterBeats {
-        number_of_beats,
-        beat_start: None,
-        beats_accumulated: 0,
+#[derive(Bundle)]
+struct AOEBundle {
+    aoe: AOE,
+    mesh: Mesh2d,
+    material: MeshMaterial2d<ColorMaterial>,
+    collider: Collider,
+    collision_groups: CollisionGroups,
+    transform: Transform,
+}
+
+fn aoe_bundle(
+    meshes: &mut Assets<Mesh>,
+    materials: &mut Assets<ColorMaterial>,
+    player_transform: &Transform,
+    metronome: &Metronome,
+    initial_radius: f32,
+    final_radius: f32,
+    for_num_beats: u8,
+) -> AOEBundle {
+    AOEBundle {
+        aoe: AOE {
+            initial_radius,
+            final_radius,
+            for_num_beats,
+            num_beats_elapsed: 0,
+            timer: Timer::new(
+                Duration::from_nanos(nanos_per_beat(metronome.bpm).floor().try_into().unwrap()),
+                TimerMode::Repeating,
+            ),
+        },
+        mesh: Mesh2d(meshes.add(Circle::new(initial_radius))),
+        material: MeshMaterial2d(materials.add(Color::hsva(0., 0., 10., 0.3))),
+        collider: Collider::ball(initial_radius),
+        collision_groups: CollisionGroups::new(Group::GROUP_2, Group::ALL),
+        transform: Transform::from_xyz(
+            player_transform.translation.x,
+            player_transform.translation.y,
+            1.,
+        ),
     }
 }
 
-fn despawn_after_beats_system(
+fn aoe_system(
+    time: Res<Time>,
     mut commands: Commands,
-    metronome: Res<Metronome>,
-    mut query: Query<(Entity, &mut DespawnAfterBeats)>,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut query: Query<(Entity, &mut AOE)>,
+    player_query: Query<&Transform, With<Player>>,
 ) {
-    for (entity, mut despawn_after_beats) in query.iter_mut() {
-        let beat_start = *despawn_after_beats
-            .beat_start
-            .get_or_insert(closest_beat(&metronome));
+    if let Ok(player_transform) = player_query.single() {
+        for (entity, mut aoe) in query.iter_mut() {
+            aoe.timer.tick(time.delta());
+            if aoe.timer.just_finished() {
+                aoe.timer.reset();
+                aoe.num_beats_elapsed += 1;
+                if aoe.num_beats_elapsed >= aoe.for_num_beats {
+                    commands.entity(entity).despawn();
+                }
+            } else {
+                let radius_diff = aoe.final_radius - aoe.initial_radius;
+                let total_nanos = aoe.timer.duration().as_nanos() * aoe.for_num_beats as u128;
+                let nanos_so_far = aoe.timer.elapsed().as_nanos()
+                    + (aoe.timer.duration().as_nanos() * aoe.num_beats_elapsed as u128);
+                let progress = nanos_so_far as f32 / total_nanos as f32;
+                let radius = aoe.initial_radius + (radius_diff * progress);
 
-        if metronome.is_beat_start_frame {
-            // Don't count the first beat if we started prior to it
-            if !(despawn_after_beats.beats_accumulated == 0 && beat_start == metronome.beat) {
-                despawn_after_beats.beats_accumulated += 1;
+                commands.entity(entity).insert((
+                    Transform::from_xyz(
+                        player_transform.translation.x,
+                        player_transform.translation.y,
+                        1.,
+                    ),
+                    Mesh2d(meshes.add(Circle::new(radius as f32))),
+                    Collider::ball(radius),
+                ));
             }
-        }
-
-        if despawn_after_beats.beats_accumulated >= despawn_after_beats.number_of_beats {
-            commands.entity(entity).despawn();
         }
     }
 }

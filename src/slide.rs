@@ -1,3 +1,5 @@
+use std::time::Duration;
+
 use bevy::prelude::*;
 use bevy_rapier2d::prelude::KinematicCharacterController;
 
@@ -5,16 +7,14 @@ use bevy_rapier2d::prelude::KinematicCharacterController;
 pub struct Slide {
     start_position: Option<Vec2>,
     end_position: Vec2,
-    nanos_duration: u128,
-    nanos_elapsed: Option<u128>,
+    timer: Timer,
 }
 
-pub fn initial_slide(end_position: Vec2, nanos_duration: u128) -> Slide {
+pub fn initial_slide(end_position: Vec2, nanos_duration: u64) -> Slide {
     Slide {
         start_position: None,
         end_position,
-        nanos_duration,
-        nanos_elapsed: None,
+        timer: Timer::new(Duration::from_nanos(nanos_duration), TimerMode::Once),
     }
 }
 
@@ -29,21 +29,25 @@ pub fn slide_system(
     mut commands: Commands,
 ) {
     for (entity, transform, mut kinematic_character_controller, mut slide) in query.iter_mut() {
-        let start_position = *slide
-            .start_position
-            .get_or_insert(transform.translation.xy());
-        let nanos_elapsed = *slide.nanos_elapsed.get_or_insert(0);
-
-        let direction = slide.end_position - start_position;
-        let current_offset = transform.translation.xy() - start_position;
-        let projection = current_offset.dot(direction.normalize());
-
-        if nanos_elapsed >= slide.nanos_duration || projection >= direction.length() {
+        slide.timer.tick(time.delta());
+        if slide.timer.just_finished() {
             commands.entity(entity).remove::<Slide>();
         } else {
-            let velocity_needed = direction / (slide.nanos_duration as f32 / 1_000_000_000.0);
-            kinematic_character_controller.translation = Some(velocity_needed / 100.);
+            let start_position = *slide
+                .start_position
+                .get_or_insert(transform.translation.xy());
+
+            let direction = slide.end_position - start_position;
+            let current_offset = transform.translation.xy() - start_position;
+            let projection = current_offset.dot(direction.normalize());
+
+            if projection >= direction.length() {
+                commands.entity(entity).remove::<Slide>();
+            } else {
+                let velocity_needed =
+                    direction / (slide.timer.duration().as_nanos() as f32 / 1_000_000_000.0);
+                kinematic_character_controller.translation = Some(velocity_needed / 100.);
+            }
         }
-        slide.nanos_elapsed = Some(nanos_elapsed + time.delta().as_nanos());
     }
 }
