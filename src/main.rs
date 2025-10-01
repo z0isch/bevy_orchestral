@@ -25,13 +25,12 @@ use bevy_rapier2d::{
         KinematicCharacterController, KinematicCharacterControllerOutput, LockedAxes, RigidBody,
         Sensor,
     },
-    render::RapierDebugRenderPlugin,
 };
 use fraction::Fraction;
 use rand::{Rng, rng};
 
 use crate::{
-    bounce::{Bounce, bounce_system, initial_bounce, initial_tile_bounce, tile_bounce_system},
+    bounce::{bounce_system, initial_bounce, initial_tile_bounce, tile_bounce_system},
     metronome::{
         Metronome, closest_beat, down_beats, initial_metronome, is_down_beat, metronome_system,
         nanos_per_beat, within_nanos_window,
@@ -39,8 +38,8 @@ use crate::{
     slide::{Slide, initial_slide, slide_system},
 };
 
-const WINDOW_WIDTH: f32 = 1024.;
-const WINDOW_HEIGHT: f32 = 800.;
+const WINDOW_WIDTH: f32 = 1920.;
+const WINDOW_HEIGHT: f32 = 1080.;
 
 fn main() {
     App::new()
@@ -72,7 +71,7 @@ fn main() {
             First,
             (metronome_system, despawn_after_beats_system).chain(),
         )
-        .add_systems(Update, (update_beat_text, tile_bounce_system))
+        .add_systems(Update, tile_bounce_system)
         .add_systems(Update, toggle_audio)
         .add_systems(
             Update,
@@ -241,15 +240,6 @@ fn setup(asset_server: Res<AssetServer>, mut commands: Commands) {
         AudioPlayer::new(asset_server.load::<AudioSource>("sounds/song-101bpm.ogg")),
         PlaybackSettings::default().paused(),
     ));
-    commands.spawn((
-        BeatText,
-        Text::new(""),
-        TextFont {
-            font_size: 100.0,
-            ..default()
-        },
-    ));
-
     let player_sprite_scale = 0.15;
     let mut transform = Transform::from_xyz(0., 0., 2.);
     transform.scale = Vec3::new(player_sprite_scale, player_sprite_scale, 1.);
@@ -280,9 +270,6 @@ fn setup(asset_server: Res<AssetServer>, mut commands: Commands) {
     ));
 }
 
-#[derive(Component)]
-struct BeatText;
-
 fn toggle_audio(
     mut audio_sink: Query<&AudioSink>,
     mut metronome: ResMut<Metronome>,
@@ -298,12 +285,6 @@ fn toggle_audio(
                 metronome.started = true;
             }
         }
-    }
-}
-
-fn update_beat_text(mut beat_text: Query<&mut Text, With<BeatText>>, metronome: Res<Metronome>) {
-    for mut text in beat_text.iter_mut() {
-        text.0 = metronome.beat.to_string();
     }
 }
 
@@ -369,15 +350,22 @@ fn control_player(
     for (entity, movement_speed, transform, mut kinematic_character_controller) in query.iter_mut()
     {
         if keyboard_input.just_pressed(KeyCode::KeyJ) {
-            commands.spawn((
-                Mesh2d(meshes.add(Circle::new(50.0))),
-                MeshMaterial2d(materials.add(Color::hsva(0., 0.95, 0.7, 0.8))),
-                Transform::from_xyz(transform.translation.x, transform.translation.y, 1.),
-                (RigidBody::Dynamic, Sensor),
-                ActiveEvents::COLLISION_EVENTS,
-                Collider::ball(50.0),
-                initial_despawn_after_beats(1),
-            ));
+            let grace_period = Fraction::from(90u64 * 1_000_000);
+
+            if down_beats(&metronome)
+                .iter()
+                .any(|&beat| within_nanos_window(&metronome, beat, grace_period))
+            {
+                commands.spawn((
+                    Mesh2d(meshes.add(Circle::new(50.0))),
+                    MeshMaterial2d(materials.add(Color::hsva(0., 0.95, 0.7, 0.8))),
+                    Transform::from_xyz(transform.translation.x, transform.translation.y, 1.),
+                    (RigidBody::Dynamic, Sensor),
+                    ActiveEvents::COLLISION_EVENTS,
+                    Collider::ball(50.0),
+                    initial_despawn_after_beats(1),
+                ));
+            }
         }
         if keyboard_input.just_pressed(KeyCode::KeyK) {
             let grace_period = Fraction::from(90u64 * 1_000_000);
@@ -431,7 +419,7 @@ fn display_events(
 ) {
     for collision_event in collision_events.read() {
         match collision_event {
-            CollisionEvent::Started(entity, entity2, flags) => {
+            CollisionEvent::Started(entity, entity2, _) => {
                 if let Ok(entity) = enemy_query.get(*entity) {
                     commands.entity(entity).despawn();
                 }
