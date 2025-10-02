@@ -8,7 +8,7 @@ use std::time::Duration;
 
 use bevy::{
     asset::AssetMetaCheck, input::common_conditions::input_toggle_active, log, prelude::*,
-    window::WindowResolution,
+    time::Stopwatch, window::WindowResolution,
 };
 use bevy_aseprite_ultra::{
     AsepriteUltraPlugin,
@@ -60,7 +60,7 @@ fn main() {
         .add_plugins(AsepriteUltraPlugin)
         .add_plugins(TilemapPlugin)
         .add_plugins(RapierPhysicsPlugin::<NoUserData>::pixels_per_meter(1.))
-        .add_plugins(RapierDebugRenderPlugin::default())
+        //.add_plugins(RapierDebugRenderPlugin::default())
         .add_plugins(EguiPlugin::default())
         .add_plugins(
             WorldInspectorPlugin::new().run_if(input_toggle_active(false, KeyCode::Escape)),
@@ -85,6 +85,7 @@ fn main() {
         )
         .add_systems(Update, enemy_movement_system)
         .add_systems(Update, aoe_system)
+        .add_systems(Update, process_aoe_duration)
         .add_systems(Update, display_events)
         .run();
 }
@@ -233,53 +234,52 @@ fn control_player(
     for (entity, movement_speed, transform, mut kinematic_character_controller) in query.iter_mut()
     {
         if keyboard_input.just_pressed(KeyCode::KeyJ) {
-            // let grace_period = Fraction::from(90u64 * 1_000_000);
+            let grace_period = Fraction::from(90u64 * 1_000_000);
 
-            // if down_beats(&metronome)
-            //     .iter()
-            //     .any(|&beat| within_nanos_window(&metronome, beat, grace_period))
-            // {
-
-            commands.spawn(aoe_bundle(
-                &metronome,
-                &mut meshes,
-                &mut materials,
-                &transform,
-                30.0,
-                75.0,
-                2,
-            ));
-            //}
-        }
-        if keyboard_input.just_pressed(KeyCode::KeyK) {
-            // let grace_period = Fraction::from(90u64 * 1_000_000);
-
-            // if down_beats(&metronome)
-            //     .iter()
-            //     .any(|&beat| within_nanos_window(&metronome, beat, grace_period))
-            // {
-            let mut current_direction = Vec2::new(0., 0.);
-            if keyboard_input.pressed(KeyCode::KeyW) {
-                current_direction.y = 1.;
-            }
-            if keyboard_input.pressed(KeyCode::KeyS) {
-                current_direction.y = -1.;
-            }
-            if keyboard_input.pressed(KeyCode::KeyA) {
-                current_direction.x = -1.;
-            }
-            if keyboard_input.pressed(KeyCode::KeyD) {
-                current_direction.x = 1.;
-            }
-            if current_direction.length_squared() > 0. {
-                commands.entity(entity).insert(initial_slide(
-                    10.,
-                    current_direction,
-                    1,
+            if down_beats(&metronome)
+                .iter()
+                .any(|&beat| within_nanos_window(&metronome, beat, grace_period))
+            {
+                commands.spawn(aoe_bundle(
                     &metronome,
+                    &mut meshes,
+                    &mut materials,
+                    &transform,
+                    30.0,
+                    75.0,
+                    2,
                 ));
             }
-            //}
+        }
+        if keyboard_input.just_pressed(KeyCode::KeyK) {
+            let grace_period = Fraction::from(90u64 * 1_000_000);
+
+            if down_beats(&metronome)
+                .iter()
+                .any(|&beat| within_nanos_window(&metronome, beat, grace_period))
+            {
+                let mut current_direction = Vec2::new(0., 0.);
+                if keyboard_input.pressed(KeyCode::KeyW) {
+                    current_direction.y = 1.;
+                }
+                if keyboard_input.pressed(KeyCode::KeyS) {
+                    current_direction.y = -1.;
+                }
+                if keyboard_input.pressed(KeyCode::KeyA) {
+                    current_direction.x = -1.;
+                }
+                if keyboard_input.pressed(KeyCode::KeyD) {
+                    current_direction.x = 1.;
+                }
+                if current_direction.length_squared() > 0. {
+                    commands.entity(entity).insert(initial_slide(
+                        10.,
+                        current_direction,
+                        1,
+                        &metronome,
+                    ));
+                }
+            }
         }
 
         let mut velocity_desired = Vec2::ZERO;
@@ -336,7 +336,6 @@ fn spawn_enemy_system(
                 },
                 Sprite::default(),
                 RigidBody::Dynamic,
-                //KinematicCharacterController { ..default() },
                 LockedAxes::ROTATION_LOCKED,
                 Collider::ball(45.0 / 2.0),
                 MovementSpeed(4.),
@@ -456,7 +455,28 @@ fn aoe_system(
     }
 }
 
+#[derive(Component)]
+struct AoeDuration {
+    nanos_duration: u64,
+    stopwatch: Stopwatch,
+}
+
+fn process_aoe_duration(
+    time: Res<Time>,
+    mut commands: Commands,
+    mut query: Query<(Entity, &mut AoeDuration)>,
+) {
+    for (entity, mut aoe_duration) in query.iter_mut() {
+        aoe_duration.stopwatch.tick(time.delta());
+        if aoe_duration.stopwatch.elapsed() > Duration::from_nanos(aoe_duration.nanos_duration) {
+            commands.entity(entity).remove::<AoeDuration>();
+            commands.entity(entity).remove::<ExternalImpulse>();
+        }
+    }
+}
+
 fn display_events(
+    metronome: Res<Metronome>,
     mut commands: Commands,
     mut collision_events: EventReader<CollisionEvent>,
     query_aoe: Query<(Entity, &AOE, &Transform)>,
@@ -473,10 +493,16 @@ fn display_events(
                             - aoe_transform.translation.xy())
                         .normalize_or_zero()
                             * impulse_mult;
-                        commands.entity(enemy_entity).insert(ExternalImpulse {
-                            impulse,
-                            torque_impulse: 0.,
-                        });
+                        commands.entity(enemy_entity).insert((
+                            ExternalImpulse {
+                                impulse,
+                                torque_impulse: 0.,
+                            },
+                            AoeDuration {
+                                nanos_duration: nanos_per_beat(metronome.bpm),
+                                stopwatch: Stopwatch::new(),
+                            },
+                        ));
                     }
                 }
                 if let Ok((aoe_entity, aoe, aoe_transform)) = query_aoe.get(*entity1) {
@@ -485,27 +511,20 @@ fn display_events(
                             - aoe_transform.translation.xy())
                         .normalize_or_zero()
                             * impulse_mult;
-                        commands.entity(enemy_entity).insert(ExternalImpulse {
-                            impulse,
-                            torque_impulse: 0.,
-                        });
+                        commands.entity(enemy_entity).insert((
+                            ExternalImpulse {
+                                impulse,
+                                torque_impulse: 0.,
+                            },
+                            AoeDuration {
+                                nanos_duration: nanos_per_beat(metronome.bpm),
+                                stopwatch: Stopwatch::new(),
+                            },
+                        ));
                     }
                 }
             }
-            CollisionEvent::Stopped(entity, entity1, collision_event_flags) => {
-                if let Ok((aoe_entity, aoe, aoe_transform)) = query_aoe.get(*entity) {
-                    if let Ok((enemy_entity, enemy, enemy_transform)) = query_enemy.get(*entity1) {
-                        commands.entity(enemy_entity).remove::<ExternalImpulse>();
-                        log::info!("AOE: {:?} collided with Enemy: {:?}: Stopped", aoe, enemy,);
-                    }
-                }
-                if let Ok((aoe_entity, aoe, aoe_transform)) = query_aoe.get(*entity1) {
-                    if let Ok((enemy_entity, enemy, enemy_transform)) = query_enemy.get(*entity) {
-                        commands.entity(enemy_entity).remove::<ExternalImpulse>();
-                        log::info!("AOE: {:?} collided with Enemy: {:?}: Stopped", aoe, enemy,);
-                    }
-                }
-            }
+            CollisionEvent::Stopped(entity, entity1, collision_event_flags) => {}
         }
     }
 }
