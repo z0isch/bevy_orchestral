@@ -1,6 +1,8 @@
+mod aoe;
 mod bounce;
 mod map;
 mod metronome;
+mod player;
 mod slide;
 mod window_size;
 
@@ -30,12 +32,14 @@ use fraction::Fraction;
 use rand::{Rng, rng};
 
 use crate::{
+    aoe::{AOE, AoeDuration, aoe_bundle, aoe_system, process_aoe_duration},
     bounce::{bounce_system, initial_bounce, initial_tile_bounce, tile_bounce_system},
     map::setup_map,
     metronome::{
         Metronome, MetronomeTimer, down_beats, initial_metronome, is_down_beat, metronome_system,
         nanos_per_beat, within_nanos_window,
     },
+    player::Player,
     slide::{Slide, initial_slide, slide_system},
     window_size::{WINDOW_HEIGHT, WINDOW_WIDTH, setup_window_size},
 };
@@ -84,8 +88,7 @@ fn main() {
                 .chain(),
         )
         .add_systems(Update, enemy_movement_system)
-        .add_systems(Update, aoe_system)
-        .add_systems(Update, process_aoe_duration)
+        .add_systems(Update, (aoe_system, process_aoe_duration))
         .add_systems(Update, display_events)
         .run();
 }
@@ -111,7 +114,7 @@ struct EnemySpawnTimer {
 fn setup(asset_server: Res<AssetServer>, mut commands: Commands) {
     commands.insert_resource(initial_metronome(101));
     commands.insert_resource(EnemySpawnTimer {
-        timer: Timer::from_seconds(1., TimerMode::Repeating),
+        timer: Timer::from_seconds(0.3, TimerMode::Repeating),
     });
     commands.spawn((
         Camera2d,
@@ -173,9 +176,6 @@ fn toggle_audio(
 #[derive(Component, Debug)]
 struct MovementSpeed(f32);
 
-#[derive(Component, Debug)]
-struct Player;
-
 fn player_animation(
     mut animation_query: Query<(
         &mut AseAnimation,
@@ -234,53 +234,53 @@ fn control_player(
     for (entity, movement_speed, transform, mut kinematic_character_controller) in query.iter_mut()
     {
         if keyboard_input.just_pressed(KeyCode::KeyJ) {
-            let grace_period = Fraction::from(90u64 * 1_000_000);
+            // let grace_period = Fraction::from(90u64 * 1_000_000);
 
-            if down_beats(&metronome)
-                .iter()
-                .any(|&beat| within_nanos_window(&metronome, beat, grace_period))
-            {
-                commands.spawn(aoe_bundle(
+            // if down_beats(&metronome)
+            //     .iter()
+            //     .any(|&beat| within_nanos_window(&metronome, beat, grace_period))
+            // {
+            commands.spawn(aoe_bundle(
+                &metronome,
+                &mut meshes,
+                &mut materials,
+                &transform,
+                30.0,
+                75.0,
+                2,
+            ));
+            //}
+        }
+        if keyboard_input.just_pressed(KeyCode::KeyK) {
+            // let grace_period = Fraction::from(90u64 * 1_000_000);
+
+            // if down_beats(&metronome)
+            //     .iter()
+            //     .any(|&beat| within_nanos_window(&metronome, beat, grace_period))
+            // {
+            let mut current_direction = Vec2::new(0., 0.);
+            if keyboard_input.pressed(KeyCode::KeyW) {
+                current_direction.y = 1.;
+            }
+            if keyboard_input.pressed(KeyCode::KeyS) {
+                current_direction.y = -1.;
+            }
+            if keyboard_input.pressed(KeyCode::KeyA) {
+                current_direction.x = -1.;
+            }
+            if keyboard_input.pressed(KeyCode::KeyD) {
+                current_direction.x = 1.;
+            }
+            if current_direction.length_squared() > 0. {
+                commands.entity(entity).insert(initial_slide(
+                    10.,
+                    current_direction,
+                    1,
                     &metronome,
-                    &mut meshes,
-                    &mut materials,
-                    &transform,
-                    30.0,
-                    75.0,
-                    2,
                 ));
             }
         }
-        if keyboard_input.just_pressed(KeyCode::KeyK) {
-            let grace_period = Fraction::from(90u64 * 1_000_000);
-
-            if down_beats(&metronome)
-                .iter()
-                .any(|&beat| within_nanos_window(&metronome, beat, grace_period))
-            {
-                let mut current_direction = Vec2::new(0., 0.);
-                if keyboard_input.pressed(KeyCode::KeyW) {
-                    current_direction.y = 1.;
-                }
-                if keyboard_input.pressed(KeyCode::KeyS) {
-                    current_direction.y = -1.;
-                }
-                if keyboard_input.pressed(KeyCode::KeyA) {
-                    current_direction.x = -1.;
-                }
-                if keyboard_input.pressed(KeyCode::KeyD) {
-                    current_direction.x = 1.;
-                }
-                if current_direction.length_squared() > 0. {
-                    commands.entity(entity).insert(initial_slide(
-                        10.,
-                        current_direction,
-                        1,
-                        &metronome,
-                    ));
-                }
-            }
-        }
+        //}
 
         let mut velocity_desired = Vec2::ZERO;
         if keyboard_input.pressed(KeyCode::KeyW) {
@@ -338,7 +338,7 @@ fn spawn_enemy_system(
                 RigidBody::Dynamic,
                 LockedAxes::ROTATION_LOCKED,
                 Collider::ball(45.0 / 2.0),
-                MovementSpeed(4.),
+                MovementSpeed(6.),
                 Enemy,
                 initial_bounce(1.2),
                 Velocity::zero(),
@@ -370,111 +370,6 @@ fn enemy_movement_system(
     }
 }
 
-#[derive(Component, Debug)]
-struct AOE {
-    initial_radius: f32,
-    final_radius: f32,
-    for_num_beats: u8,
-    timer: Timer,
-}
-
-#[derive(Bundle)]
-struct AOEBundle {
-    aoe: AOE,
-    mesh: Mesh2d,
-    active_events: ActiveEvents,
-    sensor: Sensor,
-    material: MeshMaterial2d<ColorMaterial>,
-    collider: Collider,
-    transform: Transform,
-}
-
-fn aoe_bundle(
-    metronome: &Metronome,
-    meshes: &mut Assets<Mesh>,
-    materials: &mut Assets<ColorMaterial>,
-    player_transform: &Transform,
-    initial_radius: f32,
-    final_radius: f32,
-    for_num_beats: u8,
-) -> AOEBundle {
-    AOEBundle {
-        aoe: AOE {
-            initial_radius,
-            final_radius,
-            for_num_beats,
-            timer: Timer::new(
-                Duration::from_nanos(nanos_per_beat(metronome.bpm) * for_num_beats as u64),
-                TimerMode::Repeating,
-            ),
-        },
-        mesh: Mesh2d(meshes.add(Circle::new(initial_radius))),
-        material: MeshMaterial2d(materials.add(Color::hsva(0., 0., 10., 0.3))),
-        collider: Collider::ball(initial_radius),
-        sensor: Sensor,
-        active_events: ActiveEvents::COLLISION_EVENTS,
-        transform: Transform::from_xyz(
-            player_transform.translation.x,
-            player_transform.translation.y,
-            1.,
-        ),
-    }
-}
-
-fn aoe_system(
-    metronome: Res<Metronome>,
-    time: Res<Time>,
-    mut commands: Commands,
-    mut meshes: ResMut<Assets<Mesh>>,
-    mut query: Query<(Entity, &mut AOE)>,
-    player_query: Query<&Transform, With<Player>>,
-) {
-    if let Ok(player_transform) = player_query.single() {
-        for (entity, mut aoe) in query.iter_mut() {
-            aoe.timer.tick(time.delta());
-            if aoe.timer.just_finished() {
-                commands.entity(entity).despawn();
-            } else {
-                let radius_diff = aoe.final_radius - aoe.initial_radius;
-                let total_nanos = nanos_per_beat(metronome.bpm) * aoe.for_num_beats as u64;
-                let nanos_so_far = aoe.timer.elapsed().as_nanos();
-                let progress = nanos_so_far as f32 / total_nanos as f32;
-                let radius = aoe.initial_radius + (radius_diff * progress);
-
-                commands.entity(entity).insert((
-                    Transform::from_xyz(
-                        player_transform.translation.x,
-                        player_transform.translation.y,
-                        1.,
-                    ),
-                    Mesh2d(meshes.add(Circle::new(radius as f32))),
-                    Collider::ball(radius),
-                ));
-            }
-        }
-    }
-}
-
-#[derive(Component)]
-struct AoeDuration {
-    nanos_duration: u64,
-    stopwatch: Stopwatch,
-}
-
-fn process_aoe_duration(
-    time: Res<Time>,
-    mut commands: Commands,
-    mut query: Query<(Entity, &mut AoeDuration)>,
-) {
-    for (entity, mut aoe_duration) in query.iter_mut() {
-        aoe_duration.stopwatch.tick(time.delta());
-        if aoe_duration.stopwatch.elapsed() > Duration::from_nanos(aoe_duration.nanos_duration) {
-            commands.entity(entity).remove::<AoeDuration>();
-            commands.entity(entity).remove::<ExternalImpulse>();
-        }
-    }
-}
-
 fn display_events(
     metronome: Res<Metronome>,
     mut commands: Commands,
@@ -482,45 +377,30 @@ fn display_events(
     query_aoe: Query<(Entity, &AOE, &Transform)>,
     query_enemy: Query<(Entity, &Enemy, &Transform)>,
 ) {
-    let impulse_mult = 20000.;
+    let velocity = 60.;
     for collision_event in collision_events.read() {
-        log::info!("Received collision event: {:?}", collision_event);
         match collision_event {
             CollisionEvent::Started(entity, entity1, collision_event_flags) => {
                 if let Ok((aoe_entity, aoe, aoe_transform)) = query_aoe.get(*entity) {
                     if let Ok((enemy_entity, enemy, enemy_transform)) = query_enemy.get(*entity1) {
-                        let impulse = (enemy_transform.translation.xy()
-                            - aoe_transform.translation.xy())
-                        .normalize_or_zero()
-                            * impulse_mult;
-                        commands.entity(enemy_entity).insert((
-                            ExternalImpulse {
-                                impulse,
-                                torque_impulse: 0.,
-                            },
-                            AoeDuration {
-                                nanos_duration: nanos_per_beat(metronome.bpm),
-                                stopwatch: Stopwatch::new(),
-                            },
-                        ));
+                        commands.entity(enemy_entity).insert((AoeDuration {
+                            velocity,
+                            timer: Timer::new(
+                                Duration::from_nanos(nanos_per_beat(metronome.bpm)) * 12,
+                                TimerMode::Once,
+                            ),
+                        },));
                     }
                 }
                 if let Ok((aoe_entity, aoe, aoe_transform)) = query_aoe.get(*entity1) {
                     if let Ok((enemy_entity, enemy, enemy_transform)) = query_enemy.get(*entity) {
-                        let impulse = (enemy_transform.translation.xy()
-                            - aoe_transform.translation.xy())
-                        .normalize_or_zero()
-                            * impulse_mult;
-                        commands.entity(enemy_entity).insert((
-                            ExternalImpulse {
-                                impulse,
-                                torque_impulse: 0.,
-                            },
-                            AoeDuration {
-                                nanos_duration: nanos_per_beat(metronome.bpm),
-                                stopwatch: Stopwatch::new(),
-                            },
-                        ));
+                        commands.entity(enemy_entity).insert(AoeDuration {
+                            velocity,
+                            timer: Timer::new(
+                                Duration::from_nanos(nanos_per_beat(metronome.bpm)) * 12,
+                                TimerMode::Once,
+                            ),
+                        });
                     }
                 }
             }

@@ -106,10 +106,7 @@ pub fn setup_map(
                     ));
                     let on_edge = x == 0 || y == 0 || x == map_size.x - 1 || y == map_size.y - 1;
                     if !on_edge {
-                        tile.insert((
-                            CollisionGroups::new(Group::GROUP_3, Group::ALL),
-                            Collider::ball(tile_size.x / 2.),
-                        ));
+                        tile.insert((Collider::ball(tile_size.x / 2.),));
                     }
                     match tile_bounce {
                         Some(tile_bounce) => {

@@ -3,7 +3,10 @@ use std::time::Duration;
 use bevy::prelude::*;
 use bevy_rapier2d::prelude::{ExternalImpulse, KinematicCharacterController, Velocity};
 
-use crate::metronome::{Metronome, nanos_per_beat};
+use crate::{
+    aoe::AoeDuration,
+    metronome::{Metronome, nanos_per_beat},
+};
 
 #[derive(Component)]
 pub struct Slide {
@@ -38,7 +41,7 @@ pub fn slide_system(
             Option<&mut Velocity>,
             &mut Slide,
         ),
-        Without<ExternalImpulse>,
+        Without<AoeDuration>,
     >,
 ) {
     for (entity, kinematic_character_controller, velocity, mut slide) in query.iter_mut() {
