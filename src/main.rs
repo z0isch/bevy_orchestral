@@ -2,10 +2,10 @@ mod aoe;
 mod bounce;
 mod map;
 mod metronome;
+mod note_highway;
 mod player;
 mod slide;
 mod window_size;
-
 use std::time::Duration;
 
 use bevy::{
@@ -39,6 +39,9 @@ use crate::{
         Metronome, MetronomeTimer, down_beats, initial_metronome, is_down_beat, metronome_system,
         nanos_per_beat, within_nanos_window,
     },
+    note_highway::{
+        beat_line_system, note_highway_system, on_beat_line_system, setup_note_highway,
+    },
     player::Player,
     slide::{Slide, initial_slide, slide_system},
     window_size::{WINDOW_HEIGHT, WINDOW_WIDTH, setup_window_size},
@@ -71,9 +74,25 @@ fn main() {
         )
         .add_systems(
             Startup,
-            (setup_window_size, setup, setup_map, set_gravity).chain(),
+            (
+                setup_window_size,
+                setup,
+                setup_map,
+                set_gravity,
+                setup_note_highway,
+            )
+                .chain(),
         )
-        .add_systems(First, metronome_system)
+        .add_systems(
+            First,
+            (
+                metronome_system,
+                note_highway_system,
+                on_beat_line_system,
+                beat_line_system,
+            )
+                .chain(),
+        )
         .add_systems(Update, tile_bounce_system)
         .add_systems(Update, toggle_audio)
         .add_systems(
@@ -111,7 +130,12 @@ struct EnemySpawnTimer {
     timer: Timer,
 }
 
-fn setup(asset_server: Res<AssetServer>, mut commands: Commands) {
+fn setup(
+    asset_server: Res<AssetServer>,
+    mut commands: Commands,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut materials: ResMut<Assets<ColorMaterial>>,
+) {
     commands.insert_resource(initial_metronome(101));
     commands.insert_resource(EnemySpawnTimer {
         timer: Timer::from_seconds(0.3, TimerMode::Repeating),
@@ -234,22 +258,22 @@ fn control_player(
     for (entity, movement_speed, transform, mut kinematic_character_controller) in query.iter_mut()
     {
         if keyboard_input.just_pressed(KeyCode::KeyJ) {
-            // let grace_period = Fraction::from(90u64 * 1_000_000);
+            let grace_period = Fraction::from(90u64 * 1_000_000);
 
-            // if down_beats(&metronome)
-            //     .iter()
-            //     .any(|&beat| within_nanos_window(&metronome, beat, grace_period))
-            // {
-            commands.spawn(aoe_bundle(
-                &metronome,
-                &mut meshes,
-                &mut materials,
-                &transform,
-                30.0,
-                75.0,
-                2,
-            ));
-            //}
+            if down_beats(&metronome)
+                .iter()
+                .any(|&beat| within_nanos_window(&metronome, beat, grace_period))
+            {
+                commands.spawn(aoe_bundle(
+                    &metronome,
+                    &mut meshes,
+                    &mut materials,
+                    &transform,
+                    30.0,
+                    75.0,
+                    2,
+                ));
+            }
         }
         if keyboard_input.just_pressed(KeyCode::KeyK) {
             // let grace_period = Fraction::from(90u64 * 1_000_000);

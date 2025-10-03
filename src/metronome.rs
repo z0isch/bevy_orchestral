@@ -74,6 +74,24 @@ pub fn down_beats(_metronome: &Metronome) -> Vec<u8> {
     vec![0, 4, 8, 12]
 }
 
+pub fn nanos_from_beat(metronome: &Metronome, beat: u8) -> Fraction {
+    let nanos_per_beat = nanos_fraction_per_beat(metronome.bpm);
+    let distance_forward = ((beat as i16 - metronome.beat as i16 + 16) % 16) as i8;
+
+    if distance_forward == 0 {
+        -metronome.nanos_accumulated
+    } else if distance_forward > 0 && distance_forward <= 8 {
+        // Beat is in the future
+        let time_until_next_beat = nanos_per_beat - metronome.nanos_accumulated;
+        let additional_beats = (distance_forward - 1) as u64;
+        time_until_next_beat + nanos_per_beat * additional_beats
+    } else {
+        let beats_back = (16 - distance_forward) as u64;
+        let time_since_beat = metronome.nanos_accumulated + nanos_per_beat * beats_back;
+        -time_since_beat
+    }
+}
+
 pub struct MetronomeTimer {
     pub number_beats_duration: u8,
     timer_state: MetronomeTimerState,

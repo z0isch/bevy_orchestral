@@ -18,8 +18,8 @@ pub fn setup_map(
     let tile_size = TilemapTileSize { x: 16.0, y: 16.0 };
     let texture_handle: Handle<Image> = asset_server.load("sprites/kenney_tiny-town/tilemap.png");
     let map_size = TilemapSize {
-        x: (window_size.width / tile_size.x / 2.0) as u32,
-        y: (window_size.height / tile_size.y / 2.0) as u32,
+        x: (window_size.width / 2.0 / tile_size.x) as u32,
+        y: (window_size.height / 2.0 / tile_size.y) as u32,
     };
     let tilemap_entity = commands.spawn_empty().id();
     let mut tile_storage = TileStorage::empty(map_size);
