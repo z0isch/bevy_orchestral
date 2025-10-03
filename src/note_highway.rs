@@ -8,8 +8,8 @@ use crate::{
     window_size::{WINDOW_HEIGHT, WINDOW_WIDTH},
 };
 
-const HIGHWAY_WIDTH: f32 = WINDOW_WIDTH / 20.;
-const HIGHWAY_HEIGHT: f32 = WINDOW_HEIGHT / 10.;
+const HIGHWAY_WIDTH: f32 = WINDOW_WIDTH / 40.;
+const HIGHWAY_HEIGHT: f32 = WINDOW_HEIGHT / 8.;
 
 // Perspective parameters
 const PERSPECTIVE_SCALE_MIN: f32 = 0.5; // Scale at the far end (top)
@@ -210,7 +210,7 @@ pub fn note_highway_system(
         if let Ok(mut note_highway_transform) = query.single_mut() {
             note_highway_transform.translation.x = player_transform.translation.x;
             note_highway_transform.translation.y =
-                player_transform.translation.y + HIGHWAY_HEIGHT / 2.;
+                player_transform.translation.y + HIGHWAY_HEIGHT / 2. + 20.;
         }
     }
 }
