@@ -46,13 +46,12 @@ Vampire Survivors like game with an emphasis on players collecting notes when th
 
 - Enemy variety?
 - How do we get new instruments?
-- Buy with secondary currency?
-- Buy in between levels?
+  - Buy them with a secondary currency?
+  - Offered every X levels?
+  - Buy in between levels?
 - Instrument movement?
   - Follows the player?
   - Fixed spots on the map that you unclock with a secondary currency?
-- Buy them with a seperate currency that drops along with xp?
-- Offered every X levels?
 - Can you have multiple of the same instrument?
 - Player sprint on the beat by hitting a key?
 - Change where a note is on the score on the fly?
