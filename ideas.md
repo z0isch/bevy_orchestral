@@ -20,7 +20,7 @@ Vampire Survivors like game with an emphasis on players collecting notes when th
 - ppp, pp, mp, mf, f, ff, etc to determine the power of the ability
 - rarity for more powerful dynamics
 
-## Solo Instrument Abilities
+## Instrument Abilities
 
 1. Laser Beam shoots in a straight line and can hit multiple targets
 
