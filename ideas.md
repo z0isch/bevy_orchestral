@@ -2,17 +2,13 @@
 
 Vampire Survivors like game with an emphasis on players collecting notes when they level up and creating a score for instruments to play
 
-The player can move (slowly) in real-time
+- The player can move (slowly) in real-time
+- Instruments and enemies do their abilities on the beat
+- The player has to hit the correct keyboard key corresponding to the notes that they put on the score for the instrument to actually play that note
+- Enemies drop xp when they are killed that needs to be collected
+- Fixed map to avoid level creation and camera controlling complexity
 
-Instruments and enemies do their abilities on the beat
-
-The player has to hit the correct keyboard key corresponding to the notes that they put on the score for the instrument to actually play that note
-
-Enemies drop xp when they are killed that needs to be collected
-
-Fixed map to avoid level creation and camera controlling complexity
-
-When the player levels up they choose a note with features:
+## On Level Up pick from 3 choices of notes with these features
 
 1. Note Length
 
