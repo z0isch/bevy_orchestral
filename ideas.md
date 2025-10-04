@@ -44,6 +44,7 @@ Vampire Survivors like game with an emphasis on players collecting notes when th
 
 ## Questions
 
+- Enemy variety?
 - How do we get new instruments?
 - Buy with secondary currency?
 - Buy in between levels?
