@@ -104,8 +104,10 @@ Vampire Survivors like game with an emphasis on players collecting notes when th
 
 ### Score upgrades
 
-- Repeat a measure without having to play it with repeat :
-  https://www.ataea.co.uk/images/thumb/c/c0/Repeat_0.png/236px-Repeat_0.png
+- Repeat a measure without having to play it with repeat
+
+  <img width="236" height="150" alt="image" src="https://github.com/user-attachments/assets/72bdd80c-a05c-42d7-8067-404ef57179ae" />
+
 
 ### Defenses for the player
 
