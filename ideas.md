@@ -42,21 +42,8 @@ Vampire Survivors like game with an emphasis on players collecting notes when th
 - Dynamic level can add to number of bullets fired per beat, damage per bullet
 - Positive dmg multiplier
 
-## Support instrument types
-
-1. Buff solo instruments
-
-- Length of note determines how long the AoE is active
-- Dynamic level can add to AoE size, increase beat rate (pulses every 16th instead of every 8th), increase damage per pulse
-
-2.  Slow enemies
-
-- Length of note determines how long the AoE is active
-- Dynamic level can add to AoE size, length of effect, style of effect slow -> freeze
-
 ## Questions
 
-- Is 5 instruments (keyboard keys) (+ sprint) too many keys for the player?
 - How do we get new instruments?
 - Buy with secondary currency?
 - Buy in between levels?
@@ -78,24 +65,19 @@ Vampire Survivors like game with an emphasis on players collecting notes when th
 
 ## Stretch ideas
 
-Chests like in Vampire Survivors?
+### Support instrument types
 
-Easy mode:
+1. Buff solo instruments
 
-- Notes play automatically instead of needing to hit the key
-- More powerful if you do manage to hit the key
+- Length of note determines how long the AoE is active
+- Dynamic level can add to AoE size, increase beat rate (pulses every 16th instead of every 8th), increase damage per pulse
 
-Score upgrades:
+2.  Slow enemies
 
-- Repeat a measure without having to play it
+- Length of note determines how long the AoE is active
+- Dynamic level can add to AoE size, length of effect, style of effect slow -> freeze
 
-Defenses for the player:
-
-- Speed increases
-- Health increases
-- Sprint cooldown decreases
-
-Elemental notes (maybe can use note values? a, b, c, d, e, f, g)
+### Elemental notes (maybe can use note values? a, b, c, d, e, f, g)
 
 1. Poison - DoT damage
 
@@ -114,3 +96,19 @@ Elemental notes (maybe can use note values? a, b, c, d, e, f, g)
 - AoE only?
 - Pushes enemies away
 - Add to a support instrument to make the push do damage for distance the enemy is pushed
+
+### Easy mode
+
+- Notes play automatically instead of needing to hit the key
+- More powerful if you do manage to hit the key
+
+### Score upgrades
+
+- Repeat a measure without having to play it with repeat :
+  https://www.ataea.co.uk/images/thumb/c/c0/Repeat_0.png/236px-Repeat_0.png
+
+### Defenses for the player
+
+- Speed increases
+- Health increases
+- Sprint cooldown decreases
