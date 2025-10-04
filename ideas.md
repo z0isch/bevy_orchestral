@@ -60,19 +60,23 @@ When the player levels up they choose a note with features:
 
 ## Questions
 
-- Is 5 instruments (keyboard keys) (+ sprint?) too many?
+- Is 5 instruments (keyboard keys) (+ sprint) too many keys for the player?
 - How do we get new instruments?
+- Buy with secondary currency?
+- Buy in between levels?
+- Instrument movement?
+  - Follows the player?
+  - Fixed spots on the map that you unclock with a secondary currency?
 - Buy them with a seperate currency that drops along with xp?
 - Offered every X levels?
 - Can you have multiple of the same instrument?
 - Player sprint on the beat by hitting a key?
 - Change where a note is on the score on the fly?
 - Slam notes together to make them more powerful?
-- Can we control how the instrument moves or where it's located? Maybe they are fixed in the map tower defence style?
 - What's the game loop?
-- Beat a boss
-- Score to beat the level
-- Survive for a certain amount of time
+  - Beat a boss
+  - Score to beat the level
+  - Survive for a certain amount of time
 - Carry instruments over levels, but not notes?
 - Is there meta progression?
 
