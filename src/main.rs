@@ -47,6 +47,9 @@ use crate::{
     window_size::{WINDOW_HEIGHT, WINDOW_WIDTH, setup_window_size},
 };
 
+const SONG_BPM: u64 = 60;
+const SONG_FILE: &str = "sounds/song-60bpm.ogg";
+
 fn main() {
     App::new()
         .add_plugins(
@@ -136,7 +139,7 @@ fn setup(
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<ColorMaterial>>,
 ) {
-    commands.insert_resource(initial_metronome(101));
+    commands.insert_resource(initial_metronome(SONG_BPM));
     commands.insert_resource(EnemySpawnTimer {
         timer: Timer::from_seconds(0.3, TimerMode::Repeating),
     });
@@ -148,7 +151,7 @@ fn setup(
         }),
     ));
     commands.spawn((
-        AudioPlayer::new(asset_server.load::<AudioSource>("sounds/song-101bpm.ogg")),
+        AudioPlayer::new(asset_server.load::<AudioSource>(SONG_FILE)),
         PlaybackSettings::default().paused(),
     ));
 

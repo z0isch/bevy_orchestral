@@ -1,12 +1,12 @@
 use bevy::ecs::{resource::Resource, system::Commands};
 
-pub const WINDOW_WIDTH: f32 = 1920.;
-pub const WINDOW_HEIGHT: f32 = 1080.;
+pub const WINDOW_WIDTH: u32 = 1920;
+pub const WINDOW_HEIGHT: u32 = 1080;
 
 #[derive(Resource)]
 pub struct WindowSize {
-    pub width: f32,
-    pub height: f32,
+    pub width: u32,
+    pub height: u32,
 }
 
 pub fn setup_window_size(mut commands: Commands) {

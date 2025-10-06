@@ -1,6 +1,10 @@
 use std::time::Duration;
 
-use bevy::prelude::*;
+use bevy::{
+    asset::RenderAssetUsages,
+    mesh::{Indices, PrimitiveTopology},
+    prelude::*,
+};
 
 use crate::{
     metronome::{Metronome, is_down_beat, nanos_from_beat, nanos_per_beat},
@@ -8,11 +12,11 @@ use crate::{
     window_size::{WINDOW_HEIGHT, WINDOW_WIDTH},
 };
 
-const HIGHWAY_WIDTH: f32 = WINDOW_WIDTH / 40.;
-const HIGHWAY_HEIGHT: f32 = WINDOW_HEIGHT / 8.;
+const HIGHWAY_WIDTH: f32 = WINDOW_WIDTH as f32 / 30.;
+const HIGHWAY_HEIGHT: f32 = WINDOW_HEIGHT as f32 / 8.;
 
 // Perspective parameters
-const PERSPECTIVE_SCALE_MIN: f32 = 0.5; // Scale at the far end (top)
+const PERSPECTIVE_SCALE_MIN: f32 = 0.4; // Scale at the far end (top)
 const PERSPECTIVE_SCALE_MAX: f32 = 1.0; // Scale at the near end (bottom)
 
 /// Converts a normalized position (0.0 at bottom, 1.0 at top) to a perspective scale
@@ -62,12 +66,12 @@ fn create_trapezoid_mesh() -> Mesh {
     let uvs = vec![[0., 0.], [1., 0.], [1., 1.], [0., 1.]];
 
     Mesh::new(
-        bevy::render::mesh::PrimitiveTopology::TriangleList,
-        bevy::render::render_asset::RenderAssetUsages::default(),
+        PrimitiveTopology::TriangleList,
+        RenderAssetUsages::default(),
     )
     .with_inserted_attribute(Mesh::ATTRIBUTE_POSITION, vertices)
     .with_inserted_attribute(Mesh::ATTRIBUTE_UV_0, uvs)
-    .with_inserted_indices(bevy::render::mesh::Indices::U32(indices))
+    .with_inserted_indices(Indices::U32(indices))
 }
 
 pub fn setup_note_highway(
@@ -98,7 +102,11 @@ pub fn setup_note_highway(
             NoteHighway,
             Mesh2d(meshes.add(create_trapezoid_mesh())),
             MeshMaterial2d(materials.add(Color::hsva(0., 0., 0., 0.1))),
-            Transform::from_xyz(0., WINDOW_HEIGHT / 4. - HIGHWAY_HEIGHT / 2., 10.),
+            Transform::from_xyz(
+                0.,
+                WINDOW_HEIGHT as f32 / 4. - HIGHWAY_HEIGHT as f32 / 2.,
+                10.,
+            ),
         ))
         .with_children(|parent| {
             // Apply perspective to the on-beat line
@@ -210,7 +218,7 @@ pub fn note_highway_system(
         if let Ok(mut note_highway_transform) = query.single_mut() {
             note_highway_transform.translation.x = player_transform.translation.x;
             note_highway_transform.translation.y =
-                player_transform.translation.y + HIGHWAY_HEIGHT / 2. + 20.;
+                player_transform.translation.y + HIGHWAY_HEIGHT / 2. + 15.;
         }
     }
 }

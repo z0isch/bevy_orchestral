@@ -18,8 +18,8 @@ pub fn setup_map(
     let tile_size = TilemapTileSize { x: 16.0, y: 16.0 };
     let texture_handle: Handle<Image> = asset_server.load("sprites/kenney_tiny-town/tilemap.png");
     let map_size = TilemapSize {
-        x: (window_size.width / 2.0 / tile_size.x) as u32,
-        y: (window_size.height / 2.0 / tile_size.y) as u32,
+        x: (window_size.width as f32 / 2.0 / tile_size.x) as u32,
+        y: (window_size.height as f32 / 2.0 / tile_size.y) as u32,
     };
     let tilemap_entity = commands.spawn_empty().id();
     let mut tile_storage = TileStorage::empty(map_size);
@@ -133,19 +133,35 @@ pub fn setup_map(
     });
 
     commands.spawn((
-        Transform::from_xyz(0., 1000. - tile_size.y + (window_size.height / 4.), 0.),
-        Collider::cuboid(window_size.width / 4., 1000.),
+        Transform::from_xyz(
+            0.,
+            1000. - tile_size.y + (window_size.height as f32 / 4.),
+            0.,
+        ),
+        Collider::cuboid(window_size.width as f32 / 4., 1000.),
     ));
     commands.spawn((
-        Transform::from_xyz(0., -1000. + tile_size.y - (window_size.height / 4.), 0.),
-        Collider::cuboid(window_size.width / 4., 1000.),
+        Transform::from_xyz(
+            0.,
+            -1000. + tile_size.y - (window_size.height as f32 / 4.),
+            0.,
+        ),
+        Collider::cuboid(window_size.width as f32 / 4., 1000.),
     ));
     commands.spawn((
-        Transform::from_xyz(1000. - tile_size.x + (window_size.width / 4.), 0., 0.),
-        Collider::cuboid(1000., window_size.height / 4.),
+        Transform::from_xyz(
+            1000. - tile_size.x + (window_size.width as f32 / 4.),
+            0.,
+            0.,
+        ),
+        Collider::cuboid(1000., window_size.height as f32 / 4.),
     ));
     commands.spawn((
-        Transform::from_xyz(-1000. + tile_size.x - (window_size.width / 4.), 0., 0.),
-        Collider::cuboid(1000., window_size.height / 4.),
+        Transform::from_xyz(
+            -1000. + tile_size.x - (window_size.width as f32 / 4.),
+            0.,
+            0.,
+        ),
+        Collider::cuboid(1000., window_size.height as f32 / 4.),
     ));
 }
