@@ -180,9 +180,9 @@ fn setup(asset_server: Res<AssetServer>, mut commands: Commands) {
         LockedAxes::ROTATION_LOCKED,
         Collider::capsule_y(100. * player_sprite_scale, 25. * player_sprite_scale),
         MovementSpeed(1.),
-        initial_bounce(1.1),
         Player,
         Velocity::zero(),
+        Visibility::default(),
         children![(
             sprite_transform,
             AseAnimation {
@@ -192,7 +192,8 @@ fn setup(asset_server: Res<AssetServer>, mut commands: Commands) {
                     .with_speed(1.5),
                 aseprite: asset_server.load("sprites/maestro.aseprite"),
             },
-            Sprite::default()
+            Sprite::default(),
+            initial_bounce(1.1)
         )],
     ));
 }
@@ -400,6 +401,7 @@ fn spawn_enemy_system(
                     max_health: 5,
                     current_health: 5,
                 },
+                Visibility::default(),
                 children![
                     health_bar_bundle(),
                     (
