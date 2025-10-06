@@ -1,9 +1,10 @@
 use std::time::Duration;
 
 use bevy::prelude::*;
-use bevy_rapier2d::prelude::{ActiveEvents, Collider, Sensor, Velocity};
+use bevy_rapier2d::prelude::*;
 
 use crate::{
+    enemy::Enemy,
     metronome::{Metronome, nanos_per_beat},
     player::Player,
 };
@@ -24,6 +25,7 @@ pub struct AOEBundle {
     sensor: Sensor,
     material: MeshMaterial2d<ColorMaterial>,
     collider: Collider,
+    collision_groups: CollisionGroups,
     transform: Transform,
 }
 
@@ -49,6 +51,7 @@ pub fn aoe_bundle(
         mesh: Mesh2d(meshes.add(Circle::new(initial_radius))),
         material: MeshMaterial2d(materials.add(Color::hsva(0., 0., 10., 0.1))),
         collider: Collider::ball(initial_radius),
+        collision_groups: CollisionGroups::new(Group::GROUP_2, Group::ALL),
         sensor: Sensor,
         active_events: ActiveEvents::COLLISION_EVENTS,
         transform: Transform::from_xyz(
@@ -116,6 +119,36 @@ pub fn process_aoe_duration(
                     .normalize_or_zero();
                 velocity.linvel = direction * aoe_duration.velocity;
             }
+        }
+    }
+}
+
+pub fn aoe_collision_system(
+    metronome: Res<Metronome>,
+    mut commands: Commands,
+    mut collision_events: MessageReader<CollisionEvent>,
+    query_aoe: Query<(Entity, &AOE, &Transform)>,
+    query_enemy: Query<(Entity, &Enemy, &Transform)>,
+) {
+    let velocity = 60.;
+    for collision_event in collision_events.read() {
+        if let CollisionEvent::Started(entity1, entity2, _) = collision_event {
+            let enemy_entity =
+                if query_aoe.get(*entity1).is_ok() && query_enemy.get(*entity2).is_ok() {
+                    *entity2
+                } else if query_aoe.get(*entity2).is_ok() && query_enemy.get(*entity1).is_ok() {
+                    *entity1
+                } else {
+                    continue;
+                };
+
+            commands.entity(enemy_entity).insert(AoeDuration {
+                velocity,
+                timer: Timer::new(
+                    Duration::from_nanos(nanos_per_beat(metronome.bpm)) * 12,
+                    TimerMode::Once,
+                ),
+            });
         }
     }
 }

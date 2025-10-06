@@ -1,12 +1,13 @@
 mod aoe;
 mod bounce;
+mod bullet;
+mod enemy;
 mod map;
 mod metronome;
 mod note_highway;
 mod player;
 mod slide;
 mod window_size;
-use std::time::Duration;
 
 use bevy::{
     asset::AssetMetaCheck, input::common_conditions::input_toggle_active, log, prelude::*,
@@ -32,8 +33,10 @@ use fraction::Fraction;
 use rand::{Rng, rng};
 
 use crate::{
-    aoe::{AOE, AoeDuration, aoe_bundle, aoe_system, process_aoe_duration},
+    aoe::{AOE, AoeDuration, aoe_bundle, aoe_collision_system, aoe_system, process_aoe_duration},
     bounce::{bounce_system, initial_bounce, initial_tile_bounce, tile_bounce_system},
+    bullet::{bullet_bundle, bullet_collision_system, bullet_system},
+    enemy::Enemy,
     map::setup_map,
     metronome::{
         Metronome, MetronomeTimer, down_beats, initial_metronome, is_down_beat, metronome_system,
@@ -110,8 +113,11 @@ fn main() {
                 .chain(),
         )
         .add_systems(Update, enemy_movement_system)
-        .add_systems(Update, (aoe_system, process_aoe_duration))
-        .add_systems(Update, display_events)
+        .add_systems(
+            Update,
+            (aoe_system, process_aoe_duration, aoe_collision_system),
+        )
+        .add_systems(Update, (bullet_system, bullet_collision_system))
         .run();
 }
 
@@ -125,20 +131,12 @@ fn set_gravity(rapier_config: Query<&mut RapierConfiguration>) {
     }
 }
 
-#[derive(Component, Debug)]
-struct Enemy;
-
 #[derive(Resource)]
 struct EnemySpawnTimer {
     timer: Timer,
 }
 
-fn setup(
-    asset_server: Res<AssetServer>,
-    mut commands: Commands,
-    mut meshes: ResMut<Assets<Mesh>>,
-    mut materials: ResMut<Assets<ColorMaterial>>,
-) {
+fn setup(asset_server: Res<AssetServer>, mut commands: Commands) {
     commands.insert_resource(initial_metronome(SONG_BPM));
     commands.insert_resource(EnemySpawnTimer {
         timer: Timer::from_seconds(0.3, TimerMode::Repeating),
@@ -171,6 +169,10 @@ fn setup(
         RigidBody::KinematicVelocityBased,
         KinematicCharacterController {
             filter_flags: QueryFilterFlags::ONLY_FIXED,
+            filter_groups: Some(CollisionGroups::new(
+                Group::GROUP_1,
+                Group::ALL - Group::GROUP_2,
+            )),
             ..default()
         },
         LockedAxes::ROTATION_LOCKED,
@@ -257,6 +259,7 @@ fn control_player(
         (With<Player>, Without<Slide>),
     >,
     keyboard_input: Res<ButtonInput<KeyCode>>,
+    enemy_query: Query<(Entity, &Transform), With<Enemy>>,
 ) {
     for (entity, movement_speed, transform, mut kinematic_character_controller) in query.iter_mut()
     {
@@ -275,6 +278,27 @@ fn control_player(
                     30.0,
                     75.0,
                     2,
+                ));
+            }
+        }
+        if keyboard_input.just_pressed(KeyCode::KeyL) {
+            if let Some((enemy, _)) = enemy_query
+                .iter()
+                .sort_by_key::<(Entity, &Transform), i32>(|(_, enemy_transform)| {
+                    enemy_transform
+                        .translation
+                        .distance(transform.translation)
+                        .round() as i32
+                })
+                .next()
+            {
+                commands.spawn(bullet_bundle(
+                    &mut meshes,
+                    &mut materials,
+                    &transform,
+                    3.0,
+                    100.0,
+                    enemy,
                 ));
             }
         }
@@ -393,45 +417,6 @@ fn enemy_movement_system(
                     &metronome,
                 ));
             }
-        }
-    }
-}
-
-fn display_events(
-    metronome: Res<Metronome>,
-    mut commands: Commands,
-    mut collision_events: EventReader<CollisionEvent>,
-    query_aoe: Query<(Entity, &AOE, &Transform)>,
-    query_enemy: Query<(Entity, &Enemy, &Transform)>,
-) {
-    let velocity = 60.;
-    for collision_event in collision_events.read() {
-        match collision_event {
-            CollisionEvent::Started(entity, entity1, collision_event_flags) => {
-                if let Ok((aoe_entity, aoe, aoe_transform)) = query_aoe.get(*entity) {
-                    if let Ok((enemy_entity, enemy, enemy_transform)) = query_enemy.get(*entity1) {
-                        commands.entity(enemy_entity).insert((AoeDuration {
-                            velocity,
-                            timer: Timer::new(
-                                Duration::from_nanos(nanos_per_beat(metronome.bpm)) * 12,
-                                TimerMode::Once,
-                            ),
-                        },));
-                    }
-                }
-                if let Ok((aoe_entity, aoe, aoe_transform)) = query_aoe.get(*entity1) {
-                    if let Ok((enemy_entity, enemy, enemy_transform)) = query_enemy.get(*entity) {
-                        commands.entity(enemy_entity).insert(AoeDuration {
-                            velocity,
-                            timer: Timer::new(
-                                Duration::from_nanos(nanos_per_beat(metronome.bpm)) * 12,
-                                TimerMode::Once,
-                            ),
-                        });
-                    }
-                }
-            }
-            CollisionEvent::Stopped(entity, entity1, collision_event_flags) => {}
         }
     }
 }
