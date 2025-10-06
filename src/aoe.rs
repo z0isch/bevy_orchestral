@@ -33,7 +33,6 @@ pub fn aoe_bundle(
     metronome: &Metronome,
     meshes: &mut Assets<Mesh>,
     materials: &mut Assets<ColorMaterial>,
-    player_transform: &Transform,
     initial_radius: f32,
     final_radius: f32,
     for_num_beats: u8,
@@ -49,16 +48,12 @@ pub fn aoe_bundle(
             ),
         },
         mesh: Mesh2d(meshes.add(Circle::new(initial_radius))),
-        material: MeshMaterial2d(materials.add(Color::hsva(0., 0., 10., 0.1))),
+        material: MeshMaterial2d(materials.add(Color::hsva(0., 0., 1., 0.1))),
         collider: Collider::ball(initial_radius),
         collision_groups: CollisionGroups::new(Group::GROUP_2, Group::ALL),
         sensor: Sensor,
         active_events: ActiveEvents::COLLISION_EVENTS,
-        transform: Transform::from_xyz(
-            player_transform.translation.x,
-            player_transform.translation.y,
-            1.,
-        ),
+        transform: Transform::from_xyz(0., 0., 0.),
     }
 }
 
@@ -68,30 +63,22 @@ pub fn aoe_system(
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
     mut query: Query<(Entity, &mut AOE)>,
-    player_query: Query<&Transform, With<Player>>,
 ) {
-    if let Ok(player_transform) = player_query.single() {
-        for (entity, mut aoe) in query.iter_mut() {
-            aoe.timer.tick(time.delta());
-            if aoe.timer.just_finished() {
-                commands.entity(entity).despawn();
-            } else {
-                let radius_diff = aoe.final_radius - aoe.initial_radius;
-                let total_nanos = nanos_per_beat(metronome.bpm) * aoe.for_num_beats as u64;
-                let nanos_so_far = aoe.timer.elapsed().as_nanos();
-                let progress = nanos_so_far as f32 / total_nanos as f32;
-                let radius = aoe.initial_radius + (radius_diff * progress);
+    for (entity, mut aoe) in query.iter_mut() {
+        aoe.timer.tick(time.delta());
+        if aoe.timer.just_finished() {
+            commands.entity(entity).despawn();
+        } else {
+            let radius_diff = aoe.final_radius - aoe.initial_radius;
+            let total_nanos = nanos_per_beat(metronome.bpm) * aoe.for_num_beats as u64;
+            let nanos_so_far = aoe.timer.elapsed().as_nanos();
+            let progress = nanos_so_far as f32 / total_nanos as f32;
+            let radius = aoe.initial_radius + (radius_diff * progress);
 
-                commands.entity(entity).insert((
-                    Transform::from_xyz(
-                        player_transform.translation.x,
-                        player_transform.translation.y,
-                        1.,
-                    ),
-                    Mesh2d(meshes.add(Circle::new(radius as f32))),
-                    Collider::ball(radius),
-                ));
-            }
+            commands.entity(entity).insert((
+                Mesh2d(meshes.add(Circle::new(radius as f32))),
+                Collider::ball(radius),
+            ));
         }
     }
 }

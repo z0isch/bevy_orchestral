@@ -1,12 +1,13 @@
-use bevy::{log, prelude::*};
+use bevy::prelude::*;
 use bevy_rapier2d::prelude::*;
 
-use crate::enemy::Enemy;
+use crate::{enemy::Enemy, health::Health};
 
 #[derive(Component)]
 pub struct Bullet {
     velocity: f32,
     enemy: Entity,
+    damage: u128,
 }
 
 #[derive(Bundle)]
@@ -29,10 +30,15 @@ pub fn bullet_bundle(
     player_transform: &Transform,
     radius: f32,
     velocity: f32,
+    damage: u128,
     enemy: Entity,
 ) -> BulletBundle {
     BulletBundle {
-        bullet: Bullet { velocity, enemy },
+        bullet: Bullet {
+            velocity,
+            enemy,
+            damage,
+        },
         mesh: Mesh2d(meshes.add(Circle::new(radius))),
         material: MeshMaterial2d(materials.add(Color::hsva(1., 1., 1., 1.))),
         collider: Collider::ball(radius),
@@ -66,7 +72,7 @@ pub fn bullet_collision_system(
     mut commands: Commands,
     mut collision_events: MessageReader<CollisionEvent>,
     query_bullet: Query<(Entity, &Bullet, &Transform)>,
-    query_enemy: Query<(Entity, &Enemy, &Transform)>,
+    mut query_enemy: Query<(Entity, &mut Health, &Transform), With<Enemy>>,
 ) {
     for collision_event in collision_events.read() {
         if let CollisionEvent::Started(entity1, entity2, _) = collision_event {
@@ -78,9 +84,12 @@ pub fn bullet_collision_system(
                 } else {
                     continue;
                 };
-
+            if let Ok((_, bullet, _)) = query_bullet.get(bullet_entity) {
+                if let Ok((_, mut health, _)) = query_enemy.get_mut(enemy_entity) {
+                    health.current_health -= bullet.damage;
+                }
+            }
             commands.entity(bullet_entity).despawn();
-            commands.entity(enemy_entity).despawn();
         }
     }
 }

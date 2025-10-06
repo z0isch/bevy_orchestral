@@ -2,6 +2,7 @@ mod aoe;
 mod bounce;
 mod bullet;
 mod enemy;
+mod health;
 mod map;
 mod metronome;
 mod note_highway;
@@ -37,6 +38,10 @@ use crate::{
     bounce::{bounce_system, initial_bounce, initial_tile_bounce, tile_bounce_system},
     bullet::{bullet_bundle, bullet_collision_system, bullet_system},
     enemy::Enemy,
+    health::{
+        Health, despawn_enemy_on_zero_health, health_bar_bundle, health_bar_system,
+        on_health_bar_add,
+    },
     map::setup_map,
     metronome::{
         Metronome, MetronomeTimer, down_beats, initial_metronome, is_down_beat, metronome_system,
@@ -115,9 +120,14 @@ fn main() {
         .add_systems(Update, enemy_movement_system)
         .add_systems(
             Update,
-            (aoe_system, process_aoe_duration, aoe_collision_system),
+            (
+                (aoe_system, process_aoe_duration, aoe_collision_system).chain(),
+                (bullet_system, bullet_collision_system).chain(),
+                (despawn_enemy_on_zero_health, health_bar_system),
+            )
+                .chain(),
         )
-        .add_systems(Update, (bullet_system, bullet_collision_system))
+        .add_observer(on_health_bar_add)
         .run();
 }
 
@@ -139,7 +149,7 @@ struct EnemySpawnTimer {
 fn setup(asset_server: Res<AssetServer>, mut commands: Commands) {
     commands.insert_resource(initial_metronome(SONG_BPM));
     commands.insert_resource(EnemySpawnTimer {
-        timer: Timer::from_seconds(0.3, TimerMode::Repeating),
+        timer: Timer::from_seconds(2., TimerMode::Repeating),
     });
     commands.spawn((
         Camera2d,
@@ -154,18 +164,10 @@ fn setup(asset_server: Res<AssetServer>, mut commands: Commands) {
     ));
 
     let player_sprite_scale = 0.15;
-    let mut transform = Transform::from_xyz(0., 0., 2.);
-    transform.scale = Vec3::new(player_sprite_scale, player_sprite_scale, 1.);
+    let mut sprite_transform = Transform::from_xyz(0., 0., 1.);
+    sprite_transform.scale = Vec3::new(player_sprite_scale, player_sprite_scale, 0.);
     commands.spawn((
-        transform,
-        AseAnimation {
-            animation: Animation::tag("idle-right")
-                .with_repeat(AnimationRepeat::Loop)
-                .with_direction(AnimationDirection::Forward)
-                .with_speed(1.5),
-            aseprite: asset_server.load("sprites/maestro.aseprite"),
-        },
-        Sprite::default(),
+        Transform::from_xyz(0., 0., 2.),
         RigidBody::KinematicVelocityBased,
         KinematicCharacterController {
             filter_flags: QueryFilterFlags::ONLY_FIXED,
@@ -176,11 +178,22 @@ fn setup(asset_server: Res<AssetServer>, mut commands: Commands) {
             ..default()
         },
         LockedAxes::ROTATION_LOCKED,
-        Collider::capsule_y(100., 25.),
+        Collider::capsule_y(100. * player_sprite_scale, 25. * player_sprite_scale),
         MovementSpeed(1.),
         initial_bounce(1.1),
         Player,
         Velocity::zero(),
+        children![(
+            sprite_transform,
+            AseAnimation {
+                animation: Animation::tag("idle-right")
+                    .with_repeat(AnimationRepeat::Loop)
+                    .with_direction(AnimationDirection::Forward)
+                    .with_speed(1.5),
+                aseprite: asset_server.load("sprites/maestro.aseprite"),
+            },
+            Sprite::default()
+        )],
     ));
 }
 
@@ -206,38 +219,37 @@ fn toggle_audio(
 struct MovementSpeed(f32);
 
 fn player_animation(
-    mut animation_query: Query<(
-        &mut AseAnimation,
-        &KinematicCharacterController,
-        &mut Transform,
-    )>,
+    mut player_query: Query<(&Children, &KinematicCharacterController, &mut Transform)>,
+    mut animation_query: Query<&mut AseAnimation>,
 ) {
-    for (mut ase_sprite_animation, kinematic_character_controller, mut transform) in
-        animation_query.iter_mut()
-    {
-        let velocity = kinematic_character_controller
-            .translation
-            .unwrap_or(Vec2::ZERO);
-        let near_idle = velocity.length_squared() < 0.1;
-        if near_idle {
-            transform.scale.x = transform.scale.x.abs();
-            ase_sprite_animation.animation.play_loop("idle-right");
-        } else {
-            if velocity.x > 0. {
-                if velocity.y > 0. {
-                    transform.scale.x = transform.scale.x.abs() * -1.;
-                    ase_sprite_animation.animation.play_loop("walk-up-left");
-                } else {
+    for (children, kinematic_character_controller, mut transform) in player_query.iter_mut() {
+        for child in children.iter() {
+            if let Ok(mut ase_sprite_animation) = animation_query.get_mut(child) {
+                let velocity = kinematic_character_controller
+                    .translation
+                    .unwrap_or(Vec2::ZERO);
+                let near_idle = velocity.length_squared() < 0.1;
+                if near_idle {
                     transform.scale.x = transform.scale.x.abs();
-                    ase_sprite_animation.animation.play_loop("walk-right");
-                }
-            } else {
-                if velocity.y > 0. {
-                    transform.scale.x = transform.scale.x.abs();
-                    ase_sprite_animation.animation.play_loop("walk-up-left");
+                    ase_sprite_animation.animation.play_loop("idle-right");
                 } else {
-                    transform.scale.x = transform.scale.x.abs() * -1.;
-                    ase_sprite_animation.animation.play_loop("walk-right");
+                    if velocity.x > 0. {
+                        if velocity.y > 0. {
+                            transform.scale.x = transform.scale.x.abs() * -1.;
+                            ase_sprite_animation.animation.play_loop("walk-up-left");
+                        } else {
+                            transform.scale.x = transform.scale.x.abs();
+                            ase_sprite_animation.animation.play_loop("walk-right");
+                        }
+                    } else {
+                        if velocity.y > 0. {
+                            transform.scale.x = transform.scale.x.abs();
+                            ase_sprite_animation.animation.play_loop("walk-up-left");
+                        } else {
+                            transform.scale.x = transform.scale.x.abs() * -1.;
+                            ase_sprite_animation.animation.play_loop("walk-right");
+                        }
+                    }
                 }
             }
         }
@@ -270,11 +282,10 @@ fn control_player(
                 .iter()
                 .any(|&beat| within_nanos_window(&metronome, beat, grace_period))
             {
-                commands.spawn(aoe_bundle(
+                commands.entity(entity).with_child(aoe_bundle(
                     &metronome,
                     &mut meshes,
                     &mut materials,
-                    &transform,
                     30.0,
                     75.0,
                     2,
@@ -297,7 +308,8 @@ fn control_player(
                     &mut materials,
                     &transform,
                     3.0,
-                    100.0,
+                    150.0,
+                    1,
                     enemy,
                 ));
             }
@@ -373,26 +385,36 @@ fn spawn_enemy_system(
             let spawn_pos = player_transform.translation.xy() + offset;
 
             let enemy_sprite_scale = 0.3;
-            let mut transform = Transform::from_xyz(spawn_pos.x, spawn_pos.y, 2.);
-            transform.scale = Vec3::new(enemy_sprite_scale, enemy_sprite_scale, 1.);
+            let mut sprite_transform = Transform::from_xyz(0., 0., 1.);
+            sprite_transform.scale = Vec3::new(enemy_sprite_scale, enemy_sprite_scale, 0.);
 
             commands.spawn((
-                transform,
-                AseAnimation {
-                    animation: Animation::tag("idle-right")
-                        .with_repeat(AnimationRepeat::Loop)
-                        .with_direction(AnimationDirection::Forward)
-                        .with_speed(0.5),
-                    aseprite: asset_server.load("sprites/skunk.aseprite"),
-                },
-                Sprite::default(),
+                Transform::from_xyz(spawn_pos.x, spawn_pos.y, 2.),
                 RigidBody::Dynamic,
                 LockedAxes::ROTATION_LOCKED,
-                Collider::ball(45.0 / 2.0),
+                Collider::ball((45.0 / 2.0) * enemy_sprite_scale),
                 MovementSpeed(6.),
                 Enemy,
-                initial_bounce(1.2),
                 Velocity::zero(),
+                Health {
+                    max_health: 5,
+                    current_health: 5,
+                },
+                children![
+                    health_bar_bundle(),
+                    (
+                        AseAnimation {
+                            animation: Animation::tag("idle-right")
+                                .with_repeat(AnimationRepeat::Loop)
+                                .with_direction(AnimationDirection::Forward)
+                                .with_speed(0.5),
+                            aseprite: asset_server.load("sprites/skunk.aseprite"),
+                        },
+                        Sprite::default(),
+                        sprite_transform,
+                        initial_bounce(1.2)
+                    )
+                ],
             ));
         }
     }
