@@ -3,6 +3,7 @@ mod bounce;
 mod bullet;
 mod enemy;
 mod health;
+mod laser;
 mod map;
 mod metronome;
 mod note_highway;
@@ -11,8 +12,8 @@ mod slide;
 mod window_size;
 
 use bevy::{
-    asset::AssetMetaCheck, input::common_conditions::input_toggle_active, log, prelude::*,
-    time::Stopwatch, window::WindowResolution,
+    asset::AssetMetaCheck, audio::Volume, input::common_conditions::input_toggle_active, log,
+    prelude::*, time::Stopwatch, window::WindowResolution,
 };
 use bevy_aseprite_ultra::{
     AsepriteUltraPlugin,
@@ -42,6 +43,7 @@ use crate::{
         Health, despawn_enemy_on_zero_health, health_bar_bundle, health_bar_system,
         on_health_bar_add,
     },
+    laser::{laser_bundle, laser_collision_system, laser_system},
     map::setup_map,
     metronome::{
         Metronome, MetronomeTimer, down_beats, initial_metronome, is_down_beat, metronome_system,
@@ -94,38 +96,32 @@ fn main() {
             )
                 .chain(),
         )
+        .add_systems(First, metronome_system)
         .add_systems(
-            First,
+            Update,
             (
-                metronome_system,
+                toggle_audio,
                 note_highway_system,
                 on_beat_line_system,
                 beat_line_system,
-            )
-                .chain(),
-        )
-        .add_systems(Update, tile_bounce_system)
-        .add_systems(Update, toggle_audio)
-        .add_systems(
-            Update,
-            (
-                control_player,
-                slide_system,
+                tile_bounce_system,
                 bounce_system,
-                spawn_enemy_system,
-                player_animation,
-            )
-                .chain(),
-        )
-        .add_systems(Update, enemy_movement_system)
-        .add_systems(
-            Update,
-            (
-                (aoe_system, process_aoe_duration, aoe_collision_system).chain(),
-                (bullet_system, bullet_collision_system).chain(),
-                (despawn_enemy_on_zero_health, health_bar_system),
-            )
-                .chain(),
+                enemy_movement_system,
+                (
+                    (aoe_system, process_aoe_duration, aoe_collision_system).chain(),
+                    (bullet_system, bullet_collision_system).chain(),
+                    (laser_system, laser_collision_system).chain(),
+                    (despawn_enemy_on_zero_health, health_bar_system).chain(),
+                )
+                    .chain(),
+                (
+                    control_player,
+                    slide_system,
+                    spawn_enemy_system,
+                    player_animation,
+                )
+                    .chain(),
+            ),
         )
         .add_observer(on_health_bar_add)
         .run();
@@ -149,7 +145,7 @@ struct EnemySpawnTimer {
 fn setup(asset_server: Res<AssetServer>, mut commands: Commands) {
     commands.insert_resource(initial_metronome(SONG_BPM));
     commands.insert_resource(EnemySpawnTimer {
-        timer: Timer::from_seconds(2., TimerMode::Repeating),
+        timer: Timer::from_seconds(3., TimerMode::Repeating),
     });
     commands.spawn((
         Camera2d,
@@ -199,16 +195,17 @@ fn setup(asset_server: Res<AssetServer>, mut commands: Commands) {
 }
 
 fn toggle_audio(
-    mut audio_sink: Query<&AudioSink>,
+    mut audio_sink: Query<&mut AudioSink>,
     mut metronome: ResMut<Metronome>,
     keyboard_input: Res<ButtonInput<KeyCode>>,
 ) {
     if keyboard_input.just_pressed(KeyCode::KeyX) {
-        if let Ok(audio_sink) = audio_sink.single_mut() {
+        if let Ok(mut audio_sink) = audio_sink.single_mut() {
             if metronome.started {
                 audio_sink.pause();
                 metronome.started = false;
             } else {
+                audio_sink.set_volume(Volume::SILENT);
                 audio_sink.play();
                 metronome.started = true;
             }
@@ -276,22 +273,32 @@ fn control_player(
 ) {
     for (entity, movement_speed, transform, mut kinematic_character_controller) in query.iter_mut()
     {
+        if keyboard_input.just_pressed(KeyCode::KeyH) {
+            commands.entity(entity).with_child(laser_bundle(
+                &mut meshes,
+                &mut materials,
+                1,
+                2,
+                3.,
+                150.,
+            ));
+        }
         if keyboard_input.just_pressed(KeyCode::KeyJ) {
-            let grace_period = Fraction::from(90u64 * 1_000_000);
+            // let grace_period = Fraction::from(90u64 * 1_000_000);
 
-            if down_beats(&metronome)
-                .iter()
-                .any(|&beat| within_nanos_window(&metronome, beat, grace_period))
-            {
-                commands.entity(entity).with_child(aoe_bundle(
-                    &metronome,
-                    &mut meshes,
-                    &mut materials,
-                    30.0,
-                    75.0,
-                    2,
-                ));
-            }
+            // if down_beats(&metronome)
+            //     .iter()
+            //     .any(|&beat| within_nanos_window(&metronome, beat, grace_period))
+            // {
+            commands.entity(entity).with_child(aoe_bundle(
+                &metronome,
+                &mut meshes,
+                &mut materials,
+                30.0,
+                75.0,
+                2,
+            ));
+            //}
         }
         if keyboard_input.just_pressed(KeyCode::KeyL) {
             if let Some((enemy, _)) = enemy_query

@@ -6,7 +6,7 @@ use crate::{enemy::Enemy, health::Health};
 #[derive(Component)]
 pub struct Bullet {
     velocity: f32,
-    enemy: Entity,
+    target: Entity,
     damage: u128,
 }
 
@@ -31,12 +31,12 @@ pub fn bullet_bundle(
     radius: f32,
     velocity: f32,
     damage: u128,
-    enemy: Entity,
+    target: Entity,
 ) -> BulletBundle {
     BulletBundle {
         bullet: Bullet {
             velocity,
-            enemy,
+            target,
             damage,
         },
         mesh: Mesh2d(meshes.add(Circle::new(radius))),
@@ -44,7 +44,7 @@ pub fn bullet_bundle(
         collider: Collider::ball(radius),
         collision_groups: CollisionGroups::new(Group::GROUP_2, Group::ALL),
         sensor: Sensor,
-        rigid_body: RigidBody::Dynamic,
+        rigid_body: RigidBody::KinematicVelocityBased,
         active_events: ActiveEvents::COLLISION_EVENTS,
         transform: Transform::from_xyz(
             player_transform.translation.x,
@@ -60,7 +60,7 @@ pub fn bullet_system(
     enemy_query: Query<&Transform, With<Enemy>>,
 ) {
     for (bullet, transform, mut velocity) in bullet_query.iter_mut() {
-        if let Ok(enemy_transform) = enemy_query.get(bullet.enemy) {
+        if let Ok(enemy_transform) = enemy_query.get(bullet.target) {
             let direction =
                 (enemy_transform.translation.xy() - transform.translation.xy()).normalize_or_zero();
             velocity.linvel = direction * bullet.velocity;
@@ -70,26 +70,19 @@ pub fn bullet_system(
 
 pub fn bullet_collision_system(
     mut commands: Commands,
-    mut collision_events: MessageReader<CollisionEvent>,
-    query_bullet: Query<(Entity, &Bullet, &Transform)>,
-    mut query_enemy: Query<(Entity, &mut Health, &Transform), With<Enemy>>,
+    rapier_context: ReadRapierContext,
+    query_bullet: Query<(Entity, &Bullet)>,
+    mut enemy_query: Query<(Entity, &mut Health), With<Enemy>>,
 ) {
-    for collision_event in collision_events.read() {
-        if let CollisionEvent::Started(entity1, entity2, _) = collision_event {
-            let (bullet_entity, enemy_entity) =
-                if query_bullet.get(*entity1).is_ok() && query_enemy.get(*entity2).is_ok() {
-                    (*entity1, *entity2)
-                } else if query_bullet.get(*entity2).is_ok() && query_enemy.get(*entity1).is_ok() {
-                    (*entity2, *entity1)
-                } else {
-                    continue;
-                };
-            if let Ok((_, bullet, _)) = query_bullet.get(bullet_entity) {
-                if let Ok((_, mut health, _)) = query_enemy.get_mut(enemy_entity) {
+    let rapier_context = rapier_context.single().unwrap();
+    for (bullet_entity, bullet) in query_bullet.iter() {
+        for (enemy_entity, mut health) in enemy_query.iter_mut() {
+            if rapier_context.intersection_pair(bullet_entity, enemy_entity) == Some(true) {
+                if health.current_health > 0 {
                     health.current_health -= bullet.damage;
                 }
+                commands.entity(bullet_entity).despawn();
             }
-            commands.entity(bullet_entity).despawn();
         }
     }
 }

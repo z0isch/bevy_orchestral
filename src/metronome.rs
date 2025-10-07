@@ -31,10 +31,10 @@ pub fn nanos_per_beat(bpm: u64) -> u64 {
 pub fn closest_beat(metronome: &Metronome) -> u8 {
     if metronome.nanos_accumulated < nanos_fraction_per_beat(metronome.bpm) / 2 {
         metronome.beat
-    } else if metronome.beat == 0 {
-        15
+    } else if metronome.beat == 15 {
+        0
     } else {
-        metronome.beat - 1
+        metronome.beat + 1
     }
 }
 
@@ -130,10 +130,6 @@ impl MetronomeTimer {
             MetronomeTimerState::Running {
                 ref mut beats_elapsed,
             } => {
-                if (*beats_elapsed).try_into().unwrap_or(0 as u8) == self.number_beats_duration {
-                    self.stopwatch.reset();
-                    *beats_elapsed = 0;
-                }
                 if metronome.is_beat_start_frame {
                     *beats_elapsed += 1;
                 }
@@ -146,6 +142,25 @@ impl MetronomeTimer {
             MetronomeTimerState::Running { beats_elapsed, .. } => {
                 let beats_elapsed: u8 = beats_elapsed.try_into().unwrap_or(0);
                 metronome.is_beat_start_frame && beats_elapsed == self.number_beats_duration
+            }
+        }
+    }
+
+    pub fn finished(&self) -> bool {
+        match self.timer_state {
+            MetronomeTimerState::NotStarted => false,
+            MetronomeTimerState::Running { beats_elapsed, .. } => {
+                let beats_elapsed: u8 = beats_elapsed.try_into().unwrap_or(0);
+                beats_elapsed >= self.number_beats_duration
+            }
+        }
+    }
+
+    pub fn beats_elapsed(&self) -> u8 {
+        match self.timer_state {
+            MetronomeTimerState::NotStarted => 0,
+            MetronomeTimerState::Running { beats_elapsed, .. } => {
+                beats_elapsed.try_into().unwrap_or(0)
             }
         }
     }

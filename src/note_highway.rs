@@ -122,7 +122,7 @@ pub fn setup_note_highway(
                     ),
                 },
                 Mesh2d(meshes.add(Rectangle::new(scaled_width, 3.))),
-                MeshMaterial2d(materials.add(Color::hsva(1., 1., 1., 0.8))),
+                MeshMaterial2d(materials.add(Color::hsva(246.23, 0.8908, 0.4667, 0.8))),
                 Transform::from_xyz(0., -HIGHWAY_HEIGHT / 2., 12.),
             ));
             for bundle in note_lines.into_iter() {
