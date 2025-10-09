@@ -10,7 +10,7 @@ use crate::{
 };
 
 #[derive(Component, Debug)]
-pub struct AOE {
+pub struct Aoe {
     initial_radius: f32,
     final_radius: f32,
     for_num_beats: u8,
@@ -18,8 +18,8 @@ pub struct AOE {
 }
 
 #[derive(Bundle)]
-pub struct AOEBundle {
-    aoe: AOE,
+pub struct AoeBundle {
+    aoe: Aoe,
     mesh: Mesh2d,
     active_events: ActiveEvents,
     sensor: Sensor,
@@ -36,14 +36,15 @@ pub fn aoe_bundle(
     initial_radius: f32,
     final_radius: f32,
     for_num_beats: u8,
-) -> AOEBundle {
-    AOEBundle {
-        aoe: AOE {
+) -> AoeBundle {
+    AoeBundle {
+        aoe: Aoe {
             initial_radius,
             final_radius,
             for_num_beats,
+            #[allow(clippy::cast_precision_loss)]
             timer: Timer::new(
-                Duration::from_nanos(nanos_per_beat(metronome.bpm) * for_num_beats as u64),
+                Duration::from_nanos(nanos_per_beat(metronome.bpm) * u64::from(for_num_beats)),
                 TimerMode::Repeating,
             ),
         },
@@ -57,23 +58,28 @@ pub fn aoe_bundle(
     }
 }
 
+#[allow(clippy::needless_pass_by_value)]
 pub fn aoe_system(
     metronome: Res<Metronome>,
     time: Res<Time>,
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
-    mut query: Query<(Entity, &mut AOE)>,
+    mut aoe_query: Query<(Entity, &mut Aoe, &Transform)>,
+    mut collision_events: MessageReader<CollisionEvent>,
+    enemy_query: Query<(Entity, &Enemy, &Transform)>,
 ) {
-    for (entity, mut aoe) in query.iter_mut() {
+    for (entity, mut aoe, _) in &mut aoe_query {
         aoe.timer.tick(time.delta());
         if aoe.timer.just_finished() {
             commands.entity(entity).despawn();
         } else {
             let radius_diff = aoe.final_radius - aoe.initial_radius;
-            let total_nanos = nanos_per_beat(metronome.bpm) * aoe.for_num_beats as u64;
+            #[allow(clippy::cast_precision_loss)]
+            let total_nanos = nanos_per_beat(metronome.bpm) * u64::from(aoe.for_num_beats);
             let nanos_so_far = aoe.timer.elapsed().as_nanos();
+            #[allow(clippy::cast_precision_loss)]
             let progress = nanos_so_far as f32 / total_nanos as f32;
-            let radius = aoe.initial_radius + (radius_diff * progress);
+            let radius = radius_diff.mul_add(progress, aoe.initial_radius);
 
             commands.entity(entity).insert((
                 Mesh2d(meshes.add(Circle::new(radius as f32))),
@@ -89,32 +95,32 @@ pub struct AoeDuration {
     pub timer: Timer,
 }
 
+#[allow(clippy::needless_pass_by_value)]
 pub fn process_aoe_duration(
     time: Res<Time>,
     mut commands: Commands,
     mut query: Query<(Entity, &mut AoeDuration, &Transform, &mut Velocity)>,
     mut player_query: Query<&Transform, With<Player>>,
 ) {
-    for (entity, mut aoe_duration, transform, mut velocity) in query.iter_mut() {
+    for (entity, mut aoe_duration, transform, mut velocity) in &mut query {
         aoe_duration.timer.tick(time.delta());
         if aoe_duration.timer.just_finished() {
             commands.entity(entity).remove::<AoeDuration>();
             velocity.linvel = Vec2::ZERO;
-        } else {
-            if let Ok(player_transform) = player_query.single_mut() {
-                let direction = (transform.translation.xy() - player_transform.translation.xy())
-                    .normalize_or_zero();
-                velocity.linvel = direction * aoe_duration.velocity;
-            }
+        } else if let Ok(player_transform) = player_query.single_mut() {
+            let direction = (transform.translation.xy() - player_transform.translation.xy())
+                .normalize_or_zero();
+            velocity.linvel = direction * aoe_duration.velocity;
         }
     }
 }
 
+#[allow(clippy::needless_pass_by_value)]
 pub fn aoe_collision_system(
     metronome: Res<Metronome>,
     mut commands: Commands,
     mut collision_events: MessageReader<CollisionEvent>,
-    query_aoe: Query<(Entity, &AOE, &Transform)>,
+    query_aoe: Query<(Entity, &Aoe, &Transform)>,
     query_enemy: Query<(Entity, &Enemy, &Transform)>,
 ) {
     let velocity = 60.;
@@ -129,7 +135,7 @@ pub fn aoe_collision_system(
                     continue;
                 };
 
-            commands.entity(enemy_entity).insert(AoeDuration {
+            commands.entity(enemy_entity).try_insert(AoeDuration {
                 velocity,
                 timer: Timer::new(
                     Duration::from_nanos(nanos_per_beat(metronome.bpm)) * 12,

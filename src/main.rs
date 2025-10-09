@@ -1,3 +1,7 @@
+#![warn(clippy::pedantic)]
+#![warn(clippy::nursery)]
+#![allow(clippy::too_many_lines)]
+#![allow(clippy::type_complexity)]
 mod aoe;
 mod bounce;
 mod bullet;
@@ -13,7 +17,7 @@ mod window_size;
 
 use bevy::{
     asset::AssetMetaCheck, audio::Volume, input::common_conditions::input_toggle_active, log,
-    prelude::*, time::Stopwatch, window::WindowResolution,
+    prelude::*, window::WindowResolution,
 };
 use bevy_aseprite_ultra::{
     AsepriteUltraPlugin,
@@ -23,32 +27,26 @@ use bevy_ecs_tilemap::TilemapPlugin;
 use bevy_egui::EguiPlugin;
 use bevy_inspector_egui::quick::WorldInspectorPlugin;
 use bevy_rapier2d::{
-    plugin::{NoUserData, RapierConfiguration, RapierPhysicsPlugin, ReadRapierContext},
+    plugin::{NoUserData, RapierConfiguration, RapierPhysicsPlugin},
     prelude::{
-        ActiveEvents, Ccd, Collider, ColliderMassProperties, CollisionEvent, CollisionGroups,
-        Damping, Dominance, ExternalForce, ExternalImpulse, Group, KinematicCharacterController,
-        LockedAxes, QueryFilterFlags, RigidBody, Sensor, Sleeping, Velocity,
+        Collider, CollisionGroups, Group, KinematicCharacterController, LockedAxes,
+        QueryFilterFlags, RigidBody, Velocity,
     },
-    render::RapierDebugRenderPlugin,
 };
-use fraction::Fraction;
 use rand::{Rng, rng};
 
 use crate::{
-    aoe::{AOE, AoeDuration, aoe_bundle, aoe_collision_system, aoe_system, process_aoe_duration},
-    bounce::{bounce_system, initial_bounce, initial_tile_bounce, tile_bounce_system},
-    bullet::{bullet_bundle, bullet_collision_system, bullet_system},
+    aoe::{aoe_bundle, aoe_collision_system, aoe_system, process_aoe_duration},
+    bounce::{bounce_system, initial_bounce, tile_bounce_system},
+    bullet::{bullet_bundle, bullet_system},
     enemy::Enemy,
     health::{
         Health, despawn_enemy_on_zero_health, health_bar_bundle, health_bar_system,
         on_health_bar_add,
     },
-    laser::{laser_bundle, laser_collision_system, laser_system},
+    laser::{laser_bundle, laser_system},
     map::setup_map,
-    metronome::{
-        Metronome, MetronomeTimer, down_beats, initial_metronome, is_down_beat, metronome_system,
-        nanos_per_beat, within_nanos_window,
-    },
+    metronome::{Metronome, initial_metronome, is_down_beat, metronome_system},
     note_highway::{
         beat_line_system, note_highway_system, on_beat_line_system, setup_note_highway,
     },
@@ -96,7 +94,7 @@ fn main() {
             )
                 .chain(),
         )
-        .add_systems(First, metronome_system)
+        .add_systems(PreUpdate, metronome_system)
         .add_systems(
             Update,
             (
@@ -106,18 +104,18 @@ fn main() {
                 beat_line_system,
                 tile_bounce_system,
                 bounce_system,
-                enemy_movement_system,
-                (
-                    (aoe_system, process_aoe_duration, aoe_collision_system).chain(),
-                    (bullet_system, bullet_collision_system).chain(),
-                    (laser_system, laser_collision_system).chain(),
-                    (despawn_enemy_on_zero_health, health_bar_system).chain(),
-                )
-                    .chain(),
+                aoe_system,
+                aoe_collision_system,
+                process_aoe_duration,
+                bullet_system,
+                laser_system,
+                despawn_enemy_on_zero_health,
+                health_bar_system,
+                spawn_enemy_system,
                 (
                     control_player,
+                    enemy_movement_system,
                     slide_system,
-                    spawn_enemy_system,
                     player_animation,
                 )
                     .chain(),
@@ -142,6 +140,7 @@ struct EnemySpawnTimer {
     timer: Timer,
 }
 
+#[allow(clippy::needless_pass_by_value)]
 fn setup(asset_server: Res<AssetServer>, mut commands: Commands) {
     commands.insert_resource(initial_metronome(SONG_BPM));
     commands.insert_resource(EnemySpawnTimer {
@@ -194,21 +193,22 @@ fn setup(asset_server: Res<AssetServer>, mut commands: Commands) {
     ));
 }
 
+#[allow(clippy::needless_pass_by_value)]
 fn toggle_audio(
     mut audio_sink: Query<&mut AudioSink>,
     mut metronome: ResMut<Metronome>,
     keyboard_input: Res<ButtonInput<KeyCode>>,
 ) {
-    if keyboard_input.just_pressed(KeyCode::KeyX) {
-        if let Ok(mut audio_sink) = audio_sink.single_mut() {
-            if metronome.started {
-                audio_sink.pause();
-                metronome.started = false;
-            } else {
-                audio_sink.set_volume(Volume::SILENT);
-                audio_sink.play();
-                metronome.started = true;
-            }
+    if keyboard_input.just_pressed(KeyCode::KeyX)
+        && let Ok(mut audio_sink) = audio_sink.single_mut()
+    {
+        if metronome.started {
+            audio_sink.pause();
+            metronome.started = false;
+        } else {
+            audio_sink.set_volume(Volume::SILENT);
+            audio_sink.play();
+            metronome.started = true;
         }
     }
 }
@@ -220,7 +220,7 @@ fn player_animation(
     mut player_query: Query<(&Children, &KinematicCharacterController, &mut Transform)>,
     mut animation_query: Query<&mut AseAnimation>,
 ) {
-    for (children, kinematic_character_controller, mut transform) in player_query.iter_mut() {
+    for (children, kinematic_character_controller, mut transform) in &mut player_query {
         for child in children.iter() {
             if let Ok(mut ase_sprite_animation) = animation_query.get_mut(child) {
                 let velocity = kinematic_character_controller
@@ -230,30 +230,27 @@ fn player_animation(
                 if near_idle {
                     transform.scale.x = transform.scale.x.abs();
                     ase_sprite_animation.animation.play_loop("idle-right");
-                } else {
-                    if velocity.x > 0. {
-                        if velocity.y > 0. {
-                            transform.scale.x = transform.scale.x.abs() * -1.;
-                            ase_sprite_animation.animation.play_loop("walk-up-left");
-                        } else {
-                            transform.scale.x = transform.scale.x.abs();
-                            ase_sprite_animation.animation.play_loop("walk-right");
-                        }
+                } else if velocity.x > 0. {
+                    if velocity.y > 0. {
+                        transform.scale.x = -transform.scale.x.abs();
+                        ase_sprite_animation.animation.play_loop("walk-up-left");
                     } else {
-                        if velocity.y > 0. {
-                            transform.scale.x = transform.scale.x.abs();
-                            ase_sprite_animation.animation.play_loop("walk-up-left");
-                        } else {
-                            transform.scale.x = transform.scale.x.abs() * -1.;
-                            ase_sprite_animation.animation.play_loop("walk-right");
-                        }
+                        transform.scale.x = transform.scale.x.abs();
+                        ase_sprite_animation.animation.play_loop("walk-right");
                     }
+                } else if velocity.y > 0. {
+                    transform.scale.x = transform.scale.x.abs();
+                    ase_sprite_animation.animation.play_loop("walk-up-left");
+                } else {
+                    transform.scale.x = -transform.scale.x.abs();
+                    ase_sprite_animation.animation.play_loop("walk-right");
                 }
             }
         }
     }
 }
 
+#[allow(clippy::needless_pass_by_value)]
 fn control_player(
     metronome: Res<Metronome>,
     mut commands: Commands,
@@ -271,8 +268,7 @@ fn control_player(
     keyboard_input: Res<ButtonInput<KeyCode>>,
     enemy_query: Query<(Entity, &Transform), With<Enemy>>,
 ) {
-    for (entity, movement_speed, transform, mut kinematic_character_controller) in query.iter_mut()
-    {
+    for (entity, movement_speed, transform, mut kinematic_character_controller) in &mut query {
         if keyboard_input.just_pressed(KeyCode::KeyH) {
             commands.entity(entity).with_child(laser_bundle(
                 &mut meshes,
@@ -300,8 +296,9 @@ fn control_player(
             ));
             //}
         }
-        if keyboard_input.just_pressed(KeyCode::KeyL) {
-            if let Some((enemy, _)) = enemy_query
+        #[allow(clippy::cast_possible_truncation)]
+        if keyboard_input.just_pressed(KeyCode::KeyL)
+            && let Some((enemy, _)) = enemy_query
                 .iter()
                 .sort_by_key::<(Entity, &Transform), i32>(|(_, enemy_transform)| {
                     enemy_transform
@@ -310,17 +307,16 @@ fn control_player(
                         .round() as i32
                 })
                 .next()
-            {
-                commands.spawn(bullet_bundle(
-                    &mut meshes,
-                    &mut materials,
-                    &transform,
-                    3.0,
-                    150.0,
-                    1,
-                    enemy,
-                ));
-            }
+        {
+            commands.spawn(bullet_bundle(
+                &mut meshes,
+                &mut materials,
+                transform,
+                3.0,
+                150.0,
+                1,
+                enemy,
+            ));
         }
         if keyboard_input.just_pressed(KeyCode::KeyK) {
             // let grace_period = Fraction::from(90u64 * 1_000_000);
@@ -371,6 +367,7 @@ fn control_player(
     }
 }
 
+#[allow(clippy::needless_pass_by_value)]
 fn spawn_enemy_system(
     mut commands: Commands,
     mut spawn_timer: ResMut<EnemySpawnTimer>,
@@ -385,69 +382,72 @@ fn spawn_enemy_system(
 
     spawn_timer.timer.tick(time.delta());
 
-    if spawn_timer.timer.just_finished() {
-        if let Ok(player_transform) = player_query.single() {
-            let mut rng = rng();
-            let angle = rng.random::<f32>() * std::f32::consts::TAU;
-            let offset = Vec2::new(angle.cos(), angle.sin()) * 100.0;
-            let spawn_pos = player_transform.translation.xy() + offset;
+    if spawn_timer.timer.just_finished()
+        && let Ok(player_transform) = player_query.single()
+    {
+        let mut rng = rng();
+        let angle = rng.random::<f32>() * std::f32::consts::TAU;
+        let offset = Vec2::new(angle.cos(), angle.sin()) * 100.0;
+        let spawn_pos = player_transform.translation.xy() + offset;
 
-            let enemy_sprite_scale = 0.3;
-            let mut sprite_transform = Transform::from_xyz(0., 0., 1.);
-            sprite_transform.scale = Vec3::new(enemy_sprite_scale, enemy_sprite_scale, 0.);
+        let enemy_sprite_scale = 0.3;
+        let mut sprite_transform = Transform::from_xyz(0., 0., 1.);
+        sprite_transform.scale = Vec3::new(enemy_sprite_scale, enemy_sprite_scale, 0.);
 
-            commands.spawn((
-                Transform::from_xyz(spawn_pos.x, spawn_pos.y, 2.),
-                RigidBody::Dynamic,
-                LockedAxes::ROTATION_LOCKED,
-                Collider::ball((45.0 / 2.0) * enemy_sprite_scale),
-                MovementSpeed(6.),
-                Enemy,
-                Velocity::zero(),
-                Health {
-                    max_health: 5,
-                    current_health: 5,
-                },
-                Visibility::default(),
-                children![
-                    health_bar_bundle(),
-                    (
-                        AseAnimation {
-                            animation: Animation::tag("idle-right")
-                                .with_repeat(AnimationRepeat::Loop)
-                                .with_direction(AnimationDirection::Forward)
-                                .with_speed(0.5),
-                            aseprite: asset_server.load("sprites/skunk.aseprite"),
-                        },
-                        Sprite::default(),
-                        sprite_transform,
-                        initial_bounce(1.2)
-                    )
-                ],
-            ));
-        }
+        commands.spawn((
+            Transform::from_xyz(spawn_pos.x, spawn_pos.y, 2.),
+            RigidBody::Dynamic,
+            LockedAxes::ROTATION_LOCKED,
+            Collider::ball((45.0 / 2.0) * enemy_sprite_scale),
+            MovementSpeed(6.),
+            Enemy,
+            Velocity::zero(),
+            Health {
+                max_health: 5,
+                current_health: 5,
+            },
+            Visibility::default(),
+            children![
+                health_bar_bundle(),
+                (
+                    AseAnimation {
+                        animation: Animation::tag("idle-right")
+                            .with_repeat(AnimationRepeat::Loop)
+                            .with_direction(AnimationDirection::Forward)
+                            .with_speed(0.5),
+                        aseprite: asset_server.load("sprites/skunk.aseprite"),
+                    },
+                    Sprite::default(),
+                    sprite_transform,
+                    initial_bounce(1.2)
+                )
+            ],
+        ));
     }
 }
 
+#[allow(clippy::needless_pass_by_value)]
 fn enemy_movement_system(
     mut commands: Commands,
     metronome: Res<Metronome>,
     player_query: Query<&Transform, With<Player>>,
     mut enemy_query: Query<(Entity, &MovementSpeed, &Transform), With<Enemy>>,
 ) {
-    if metronome.started && metronome.is_beat_start_frame && is_down_beat(&metronome) {
-        if let Ok(player_transform) = player_query.single() {
-            for (entity, movement_speed, enemy_transform) in enemy_query.iter_mut() {
-                let mut rng = rng();
-                let speed_variation = rng.random_range(-0.2..=0.2);
-                let varied_velocity = movement_speed.0 * (1.0 + speed_variation);
-                commands.entity(entity).insert(initial_slide(
-                    varied_velocity,
-                    player_transform.translation.xy() - enemy_transform.translation.xy(),
-                    1,
-                    &metronome,
-                ));
-            }
+    if metronome.started
+        && metronome.is_beat_start_frame
+        && is_down_beat(&metronome)
+        && let Ok(player_transform) = player_query.single()
+    {
+        for (entity, movement_speed, enemy_transform) in &mut enemy_query {
+            let mut rng = rng();
+            let speed_variation = rng.random_range(-0.2..=0.2);
+            let varied_velocity = movement_speed.0 * (1.0 + speed_variation);
+            commands.entity(entity).insert(initial_slide(
+                varied_velocity,
+                player_transform.translation.xy() - enemy_transform.translation.xy(),
+                1,
+                &metronome,
+            ));
         }
     }
 }

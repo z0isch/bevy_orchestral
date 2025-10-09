@@ -1,6 +1,6 @@
 use std::collections::{HashMap, HashSet};
 
-use bevy::{log, prelude::*};
+use bevy::prelude::*;
 use bevy_rapier2d::prelude::*;
 
 use crate::{
@@ -54,40 +54,30 @@ pub fn laser_bundle(
     }
 }
 
+#[allow(clippy::needless_pass_by_value)]
 pub fn laser_system(
+    rapier_context: ReadRapierContext,
     metronome: Res<Metronome>,
     time: Res<Time>,
     mut commands: Commands,
     mut query_laser: Query<(Entity, &mut Laser)>,
-) {
-    for (laser_entity, mut laser) in query_laser.iter_mut() {
-        laser.timer.tick(&metronome, *time);
-        if laser.timer.just_finished(&metronome) {
-            commands.entity(laser_entity).despawn();
-        }
-    }
-}
-
-pub fn laser_collision_system(
-    rapier_context: ReadRapierContext,
-    mut query_laser: Query<(Entity, &mut Laser)>,
     mut query_enemy: Query<(Entity, &mut Health), With<Enemy>>,
 ) {
     let rapier_context = rapier_context.single().unwrap();
-    for (laser_entity, mut laser) in query_laser.iter_mut() {
-        if !laser.timer.finished() {
-            for (enemy_entity, mut health) in query_enemy.iter_mut() {
+    for (laser_entity, mut laser) in &mut query_laser {
+        laser.timer.tick(&metronome, *time);
+        if laser.timer.just_finished(&metronome) {
+            commands.entity(laser_entity).despawn();
+        } else if !laser.timer.finished() {
+            for (enemy_entity, mut health) in &mut query_enemy {
                 if rapier_context.intersection_pair(laser_entity, enemy_entity) == Some(true) {
                     let beats_elapsed = laser.timer.beats_elapsed();
                     let entities_damaged = laser
                         .entities_damaged_on_beat
                         .entry(beats_elapsed)
-                        .or_insert(HashSet::new());
-                    if !entities_damaged.contains(&enemy_entity) {
-                        entities_damaged.insert(enemy_entity);
-                        if health.current_health > 0 {
-                            health.current_health -= laser.damage_per_beat;
-                        }
+                        .or_insert_with(HashSet::new);
+                    if entities_damaged.insert(enemy_entity) && health.current_health > 0 {
+                        health.current_health -= laser.damage_per_beat;
                     }
                 }
             }

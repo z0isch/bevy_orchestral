@@ -12,7 +12,9 @@ use crate::{
     window_size::{WINDOW_HEIGHT, WINDOW_WIDTH},
 };
 
+#[allow(clippy::cast_precision_loss)]
 const HIGHWAY_WIDTH: f32 = WINDOW_WIDTH as f32 / 30.;
+#[allow(clippy::cast_precision_loss)]
 const HIGHWAY_HEIGHT: f32 = WINDOW_HEIGHT as f32 / 8.;
 
 // Perspective parameters
@@ -22,7 +24,10 @@ const PERSPECTIVE_SCALE_MAX: f32 = 1.0; // Scale at the near end (bottom)
 /// Converts a normalized position (0.0 at bottom, 1.0 at top) to a perspective scale
 fn get_perspective_scale(normalized_y: f32) -> f32 {
     // Interpolate between max scale (bottom) and min scale (top)
-    PERSPECTIVE_SCALE_MAX - normalized_y * (PERSPECTIVE_SCALE_MAX - PERSPECTIVE_SCALE_MIN)
+    normalized_y.mul_add(
+        -(PERSPECTIVE_SCALE_MAX - PERSPECTIVE_SCALE_MIN),
+        PERSPECTIVE_SCALE_MAX,
+    )
 }
 
 /// Converts a y position within the highway to a perspective-transformed position and scale
@@ -74,6 +79,7 @@ fn create_trapezoid_mesh() -> Mesh {
     .with_inserted_indices(Indices::U32(indices))
 }
 
+#[allow(clippy::needless_pass_by_value)]
 pub fn setup_note_highway(
     metronome: Res<Metronome>,
     mut commands: Commands,
@@ -91,7 +97,7 @@ pub fn setup_note_highway(
             ))),
             transform: Transform::from_xyz(
                 0.,
-                -HIGHWAY_HEIGHT / 2. + (i as f32) * HIGHWAY_HEIGHT / 8.,
+                -HIGHWAY_HEIGHT / 2. + f32::from(i) * HIGHWAY_HEIGHT / 8.,
                 11.,
             ),
         })
@@ -102,11 +108,8 @@ pub fn setup_note_highway(
             NoteHighway,
             Mesh2d(meshes.add(create_trapezoid_mesh())),
             MeshMaterial2d(materials.add(Color::hsva(0., 0., 0., 0.1))),
-            Transform::from_xyz(
-                0.,
-                WINDOW_HEIGHT as f32 / 4. - HIGHWAY_HEIGHT as f32 / 2.,
-                10.,
-            ),
+            #[allow(clippy::cast_precision_loss)]
+            Transform::from_xyz(0., WINDOW_HEIGHT as f32 / 4. - HIGHWAY_HEIGHT / 2., 10.),
         ))
         .with_children(|parent| {
             // Apply perspective to the on-beat line
@@ -125,7 +128,7 @@ pub fn setup_note_highway(
                 MeshMaterial2d(materials.add(Color::hsva(246.23, 0.8908, 0.4667, 0.8))),
                 Transform::from_xyz(0., -HIGHWAY_HEIGHT / 2., 12.),
             ));
-            for bundle in note_lines.into_iter() {
+            for bundle in note_lines {
                 parent.spawn(bundle);
             }
         });
@@ -148,13 +151,14 @@ struct BeatLineBundle {
     transform: Transform,
 }
 
+#[allow(clippy::needless_pass_by_value)]
 pub fn beat_line_system(
     metronome: Res<Metronome>,
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
     mut query: Query<(Entity, &BeatLine)>,
 ) {
-    for (entity, note_line) in query.iter_mut() {
+    for (entity, note_line) in &mut query {
         if metronome.is_beat_start_frame && metronome.beat == note_line.beat {
             commands.entity(entity).remove::<Transform>();
         } else {
@@ -180,6 +184,7 @@ pub fn beat_line_system(
     }
 }
 
+#[allow(clippy::needless_pass_by_value)]
 pub fn on_beat_line_system(
     time: Res<Time>,
     mut meshes: ResMut<Assets<Mesh>>,
@@ -200,13 +205,11 @@ pub fn on_beat_line_system(
         commands
             .entity(entity)
             .insert(Mesh2d(meshes.add(Rectangle::new(scaled_width, 2.))));
-    } else {
-        if metronome.is_beat_start_frame && is_down_beat(&metronome) {
-            beat_line.timer.unpause();
-            commands
-                .entity(entity)
-                .insert(Mesh2d(meshes.add(Rectangle::new(scaled_width, 4.))));
-        }
+    } else if metronome.is_beat_start_frame && is_down_beat(&metronome) {
+        beat_line.timer.unpause();
+        commands
+            .entity(entity)
+            .insert(Mesh2d(meshes.add(Rectangle::new(scaled_width, 4.))));
     }
 }
 
@@ -214,11 +217,11 @@ pub fn note_highway_system(
     mut query: Query<&mut Transform, (With<NoteHighway>, Without<Player>)>,
     player_query: Query<&Transform, With<Player>>,
 ) {
-    if let Ok(player_transform) = player_query.single() {
-        if let Ok(mut note_highway_transform) = query.single_mut() {
-            note_highway_transform.translation.x = player_transform.translation.x;
-            note_highway_transform.translation.y =
-                player_transform.translation.y + HIGHWAY_HEIGHT / 2. + 15.;
-        }
+    if let Ok(player_transform) = player_query.single()
+        && let Ok(mut note_highway_transform) = query.single_mut()
+    {
+        note_highway_transform.translation.x = player_transform.translation.x;
+        note_highway_transform.translation.y =
+            player_transform.translation.y + HIGHWAY_HEIGHT / 2. + 15.;
     }
 }

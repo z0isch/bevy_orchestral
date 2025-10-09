@@ -11,17 +11,17 @@ pub struct Metronome {
 }
 
 pub fn initial_metronome(bpm: u64) -> Metronome {
-    return Metronome {
+    Metronome {
         beat: 0,
-        bpm: bpm,
+        bpm,
         is_beat_start_frame: false,
         nanos_accumulated: Fraction::from(0),
         started: false,
-    };
+    }
 }
 
 fn nanos_fraction_per_beat(bpm: u64) -> Fraction {
-    return Fraction::new(60_000_000_000u64, bpm * 4);
+    Fraction::new(60_000_000_000u64, bpm * 4)
 }
 
 pub fn nanos_per_beat(bpm: u64) -> u64 {
@@ -38,20 +38,21 @@ pub fn closest_beat(metronome: &Metronome) -> u8 {
     }
 }
 
-pub fn within_nanos_window(metronome: &Metronome, beat: u8, nanos_window: Fraction) -> bool {
-    let shifted = metronome.beat as i8 - beat as i8;
-    let on_beat_or_after_beat = shifted >= 0 && shifted <= 8;
-    let since_start_or_till_next = if on_beat_or_after_beat {
-        metronome.nanos_accumulated
-    } else {
-        nanos_fraction_per_beat(metronome.bpm) - metronome.nanos_accumulated
-    };
-    let beat_distance = 8 - (shifted.abs() - 8).abs();
-    let factor = (beat_distance - 1).max(0);
-    let base = since_start_or_till_next + nanos_fraction_per_beat(metronome.bpm) * factor;
-    base <= nanos_window
-}
+// pub fn within_nanos_window(metronome: &Metronome, beat: u8, nanos_window: Fraction) -> bool {
+//     let shifted = metronome.beat as i8 - beat as i8;
+//     let on_beat_or_after_beat = shifted >= 0 && shifted <= 8;
+//     let since_start_or_till_next = if on_beat_or_after_beat {
+//         metronome.nanos_accumulated
+//     } else {
+//         nanos_fraction_per_beat(metronome.bpm) - metronome.nanos_accumulated
+//     };
+//     let beat_distance = 8 - (shifted.abs() - 8).abs();
+//     let factor = (beat_distance - 1).max(0);
+//     let base = since_start_or_till_next + nanos_fraction_per_beat(metronome.bpm) * factor;
+//     base <= nanos_window
+// }
 
+#[allow(clippy::needless_pass_by_value)]
 pub fn metronome_system(time: Res<Time>, mut metronome: ResMut<Metronome>) {
     if metronome.started {
         let nanos_per_beat = nanos_fraction_per_beat(metronome.bpm);
@@ -76,16 +77,18 @@ pub fn down_beats(_metronome: &Metronome) -> Vec<u8> {
 
 pub fn nanos_from_beat(metronome: &Metronome, beat: u8) -> Fraction {
     let nanos_per_beat = nanos_fraction_per_beat(metronome.bpm);
-    let distance_forward = ((beat as i16 - metronome.beat as i16 + 16) % 16) as i8;
+    let distance_forward = ((i16::from(beat) - i16::from(metronome.beat) + 16) % 16) as i8;
 
     if distance_forward == 0 {
         -metronome.nanos_accumulated
     } else if distance_forward > 0 && distance_forward <= 8 {
         // Beat is in the future
         let time_until_next_beat = nanos_per_beat - metronome.nanos_accumulated;
+        #[allow(clippy::cast_sign_loss)]
         let additional_beats = (distance_forward - 1) as u64;
         time_until_next_beat + nanos_per_beat * additional_beats
     } else {
+        #[allow(clippy::cast_sign_loss)]
         let beats_back = (16 - distance_forward) as u64;
         let time_since_beat = metronome.nanos_accumulated + nanos_per_beat * beats_back;
         -time_since_beat
@@ -104,8 +107,8 @@ enum MetronomeTimerState {
 }
 
 impl MetronomeTimer {
-    pub fn new(number_beats_duration: u8) -> MetronomeTimer {
-        MetronomeTimer {
+    pub fn new(number_beats_duration: u8) -> Self {
+        Self {
             number_beats_duration,
             timer_state: MetronomeTimerState::NotStarted,
             stopwatch: Stopwatch::new(),
@@ -120,7 +123,7 @@ impl MetronomeTimer {
         match self.timer_state {
             MetronomeTimerState::NotStarted => {
                 self.timer_state = MetronomeTimerState::Running {
-                    beats_elapsed: if closest_beat(&metronome) == metronome.beat {
+                    beats_elapsed: if closest_beat(metronome) == metronome.beat {
                         0
                     } else {
                         -1

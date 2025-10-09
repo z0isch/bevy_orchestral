@@ -9,19 +9,20 @@ pub struct Bounce {
     initial_scale: Option<Vec3>,
 }
 
-pub fn initial_bounce(scale: f32) -> Bounce {
+pub const fn initial_bounce(scale: f32) -> Bounce {
     Bounce {
         scale,
         initial_scale: None,
     }
 }
 
+#[allow(clippy::needless_pass_by_value)]
 pub fn bounce_system(
     metronome: Res<Metronome>,
     mut bouncers: Query<(&mut Transform, &mut Bounce)>,
 ) {
     if metronome.started {
-        for (mut transform, mut bounce) in bouncers.iter_mut() {
+        for (mut transform, mut bounce) in &mut bouncers {
             let initial_scale = *bounce.initial_scale.get_or_insert(transform.scale);
 
             if metronome.is_beat_start_frame {
@@ -49,19 +50,20 @@ pub struct TileBounce {
     initial_texture_index: Option<TileTextureIndex>,
 }
 
-pub fn initial_tile_bounce(texture_index: TileTextureIndex) -> TileBounce {
+pub const fn initial_tile_bounce(texture_index: TileTextureIndex) -> TileBounce {
     TileBounce {
         texture_index,
         initial_texture_index: None,
     }
 }
 
+#[allow(clippy::needless_pass_by_value)]
 pub fn tile_bounce_system(
     metronome: Res<Metronome>,
     mut bouncers: Query<(&mut TileBounce, &mut TileTextureIndex)>,
 ) {
     if metronome.started {
-        for (mut bounce, mut tile_texture_index) in bouncers.iter_mut() {
+        for (mut bounce, mut tile_texture_index) in &mut bouncers {
             let initial_texture_index = *bounce
                 .initial_texture_index
                 .get_or_insert(*tile_texture_index);

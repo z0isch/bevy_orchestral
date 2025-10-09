@@ -55,28 +55,22 @@ pub fn bullet_bundle(
     }
 }
 
+#[allow(clippy::needless_pass_by_value)]
 pub fn bullet_system(
-    mut bullet_query: Query<(&Bullet, &Transform, &mut Velocity)>,
-    enemy_query: Query<&Transform, With<Enemy>>,
+    mut commands: Commands,
+    rapier_context: ReadRapierContext,
+    mut bullet_query: Query<(Entity, &Bullet, &Transform, &mut Velocity)>,
+    mut enemy_query: Query<(Entity, &Transform, &mut Health), With<Enemy>>,
 ) {
-    for (bullet, transform, mut velocity) in bullet_query.iter_mut() {
-        if let Ok(enemy_transform) = enemy_query.get(bullet.target) {
+    let rapier_context = rapier_context.single().unwrap();
+
+    for (bullet_entity, bullet, transform, mut velocity) in &mut bullet_query {
+        if let Ok((enemy_entity, enemy_transform, mut health)) = enemy_query.get_mut(bullet.target)
+        {
             let direction =
                 (enemy_transform.translation.xy() - transform.translation.xy()).normalize_or_zero();
             velocity.linvel = direction * bullet.velocity;
-        }
-    }
-}
 
-pub fn bullet_collision_system(
-    mut commands: Commands,
-    rapier_context: ReadRapierContext,
-    query_bullet: Query<(Entity, &Bullet)>,
-    mut enemy_query: Query<(Entity, &mut Health), With<Enemy>>,
-) {
-    let rapier_context = rapier_context.single().unwrap();
-    for (bullet_entity, bullet) in query_bullet.iter() {
-        for (enemy_entity, mut health) in enemy_query.iter_mut() {
             if rapier_context.intersection_pair(bullet_entity, enemy_entity) == Some(true) {
                 if health.current_health > 0 {
                     health.current_health -= bullet.damage;

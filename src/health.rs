@@ -19,10 +19,10 @@ pub struct Health {
 
 pub fn despawn_enemy_on_zero_health(
     mut commands: Commands,
-    mut query: Query<(Entity, &Health), (With<Enemy>, Changed<Health>)>,
+    query: Query<(Entity, &Health), (With<Enemy>, Changed<Health>)>,
 ) {
-    for (entity, health) in query.iter_mut() {
-        if health.current_health <= 0 {
+    for (entity, health) in query {
+        if health.current_health == 0 {
             commands.entity(entity).despawn();
         }
     }
@@ -38,7 +38,7 @@ pub struct HealthBarBundle {
     visibility: Visibility,
 }
 
-pub fn health_bar_bundle() -> HealthBarBundle {
+pub const fn health_bar_bundle() -> HealthBarBundle {
     HealthBarBundle {
         health_bar: HealthBar,
         transform: Transform::from_xyz(0., 10., 1.),
@@ -49,6 +49,7 @@ pub fn health_bar_bundle() -> HealthBarBundle {
 #[derive(Component)]
 pub struct CurrentHealthBar;
 
+#[allow(clippy::needless_pass_by_value)]
 pub fn on_health_bar_add(
     event: On<Add, HealthBar>,
     mut commands: Commands,
@@ -89,9 +90,10 @@ pub fn health_bar_system(
 
                 for heatlh_bar_child in health_bar_children.iter() {
                     if let Ok(current_health_bar) = current_health_bar_query.get(heatlh_bar_child) {
+                        #[allow(clippy::cast_precision_loss)]
                         let health_missing =
                             (health.current_health as f32 / health.max_health as f32) * 18.;
-                        commands.entity(current_health_bar).insert((
+                        commands.entity(current_health_bar).try_insert((
                             Mesh2d(meshes.add(Rectangle::new(health_missing, 2.))),
                             Transform::from_xyz(-(9. - health_missing / 2.), 0., 1.),
                         ));
