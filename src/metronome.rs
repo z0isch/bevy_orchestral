@@ -38,19 +38,20 @@ pub fn closest_beat(metronome: &Metronome) -> u8 {
     }
 }
 
-// pub fn within_nanos_window(metronome: &Metronome, beat: u8, nanos_window: Fraction) -> bool {
-//     let shifted = metronome.beat as i8 - beat as i8;
-//     let on_beat_or_after_beat = shifted >= 0 && shifted <= 8;
-//     let since_start_or_till_next = if on_beat_or_after_beat {
-//         metronome.nanos_accumulated
-//     } else {
-//         nanos_fraction_per_beat(metronome.bpm) - metronome.nanos_accumulated
-//     };
-//     let beat_distance = 8 - (shifted.abs() - 8).abs();
-//     let factor = (beat_distance - 1).max(0);
-//     let base = since_start_or_till_next + nanos_fraction_per_beat(metronome.bpm) * factor;
-//     base <= nanos_window
-// }
+pub fn within_nanos_window(metronome: &Metronome, beat: u8, nanos_window: Fraction) -> bool {
+    #[allow(clippy::cast_possible_wrap)]
+    let shifted = metronome.beat as i8 - beat as i8;
+    let on_beat_or_after_beat = (0..=8).contains(&shifted);
+    let since_start_or_till_next = if on_beat_or_after_beat {
+        metronome.nanos_accumulated
+    } else {
+        nanos_fraction_per_beat(metronome.bpm) - metronome.nanos_accumulated
+    };
+    let beat_distance = 8 - (shifted.abs() - 8).abs();
+    let factor = (beat_distance - 1).max(0);
+    let base = since_start_or_till_next + nanos_fraction_per_beat(metronome.bpm) * factor;
+    base <= nanos_window
+}
 
 #[allow(clippy::needless_pass_by_value)]
 pub fn metronome_system(time: Res<Time>, mut metronome: ResMut<Metronome>) {

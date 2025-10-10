@@ -10,6 +10,7 @@ mod health;
 mod laser;
 mod map;
 mod metronome;
+mod nearest_enemy;
 mod note_highway;
 mod player;
 mod slide;
@@ -33,12 +34,13 @@ use bevy_rapier2d::{
         QueryFilterFlags, RigidBody, Velocity,
     },
 };
+use fraction::Fraction;
 use rand::{Rng, rng};
 
 use crate::{
     aoe::{aoe_bundle, aoe_collision_system, aoe_system, process_aoe_duration},
     bounce::{bounce_system, initial_bounce, tile_bounce_system},
-    bullet::{bullet_bundle, bullet_system},
+    bullet::{bullet_bundle, bullet_collision_system, bullet_system},
     enemy::Enemy,
     health::{
         Health, despawn_enemy_on_zero_health, health_bar_bundle, health_bar_system,
@@ -46,7 +48,11 @@ use crate::{
     },
     laser::{laser_bundle, laser_system},
     map::setup_map,
-    metronome::{Metronome, initial_metronome, is_down_beat, metronome_system},
+    metronome::{
+        Metronome, down_beats, initial_metronome, is_down_beat, metronome_system,
+        within_nanos_window,
+    },
+    nearest_enemy::target_nearest_enemy,
     note_highway::{
         beat_line_system, note_highway_system, on_beat_line_system, setup_note_highway,
     },
@@ -112,6 +118,7 @@ fn main() {
                 despawn_enemy_on_zero_health,
                 health_bar_system,
                 spawn_enemy_system,
+                bullet_collision_system,
                 (
                     control_player,
                     enemy_movement_system,
@@ -121,6 +128,7 @@ fn main() {
                     .chain(),
             ),
         )
+        .add_systems(PostUpdate, target_nearest_enemy)
         .add_observer(on_health_bar_add)
         .run();
 }
@@ -144,7 +152,7 @@ struct EnemySpawnTimer {
 fn setup(asset_server: Res<AssetServer>, mut commands: Commands) {
     commands.insert_resource(initial_metronome(SONG_BPM));
     commands.insert_resource(EnemySpawnTimer {
-        timer: Timer::from_seconds(3., TimerMode::Repeating),
+        timer: Timer::from_seconds(0.5, TimerMode::Repeating),
     });
     commands.spawn((
         Camera2d,
@@ -199,14 +207,18 @@ fn toggle_audio(
     mut metronome: ResMut<Metronome>,
     keyboard_input: Res<ButtonInput<KeyCode>>,
 ) {
-    if keyboard_input.just_pressed(KeyCode::KeyX)
+    if (keyboard_input.just_pressed(KeyCode::KeyX) || keyboard_input.just_pressed(KeyCode::KeyZ))
         && let Ok(mut audio_sink) = audio_sink.single_mut()
     {
         if metronome.started {
             audio_sink.pause();
             metronome.started = false;
         } else {
-            audio_sink.set_volume(Volume::SILENT);
+            if keyboard_input.just_pressed(KeyCode::KeyZ) {
+                audio_sink.set_volume(Volume::SILENT);
+            } else {
+                audio_sink.set_volume(Volume::Linear(1.0));
+            }
             audio_sink.play();
             metronome.started = true;
         }
@@ -217,12 +229,12 @@ fn toggle_audio(
 struct MovementSpeed(f32);
 
 fn player_animation(
-    mut player_query: Query<(&Children, &KinematicCharacterController, &mut Transform)>,
-    mut animation_query: Query<&mut AseAnimation>,
+    mut player_query: Query<(&Children, &KinematicCharacterController)>,
+    mut animation_query: Query<(&mut AseAnimation, &mut Transform)>,
 ) {
-    for (children, kinematic_character_controller, mut transform) in &mut player_query {
+    for (children, kinematic_character_controller) in &mut player_query {
         for child in children.iter() {
-            if let Ok(mut ase_sprite_animation) = animation_query.get_mut(child) {
+            if let Ok((mut ase_sprite_animation, mut transform)) = animation_query.get_mut(child) {
                 let velocity = kinematic_character_controller
                     .translation
                     .unwrap_or(Vec2::ZERO);
@@ -266,88 +278,65 @@ fn control_player(
         (With<Player>, Without<Slide>),
     >,
     keyboard_input: Res<ButtonInput<KeyCode>>,
-    enemy_query: Query<(Entity, &Transform), With<Enemy>>,
 ) {
     for (entity, movement_speed, transform, mut kinematic_character_controller) in &mut query {
-        if keyboard_input.just_pressed(KeyCode::KeyH) {
-            commands.entity(entity).with_child(laser_bundle(
-                &mut meshes,
-                &mut materials,
-                1,
-                2,
-                3.,
-                150.,
-            ));
-        }
-        if keyboard_input.just_pressed(KeyCode::KeyJ) {
-            // let grace_period = Fraction::from(90u64 * 1_000_000);
+        let grace_period = Fraction::from(90u64 * 1_000_000);
 
-            // if down_beats(&metronome)
-            //     .iter()
-            //     .any(|&beat| within_nanos_window(&metronome, beat, grace_period))
-            // {
-            commands.entity(entity).with_child(aoe_bundle(
-                &metronome,
-                &mut meshes,
-                &mut materials,
-                30.0,
-                75.0,
-                2,
-            ));
-            //}
-        }
-        #[allow(clippy::cast_possible_truncation)]
-        if keyboard_input.just_pressed(KeyCode::KeyL)
-            && let Some((enemy, _)) = enemy_query
-                .iter()
-                .sort_by_key::<(Entity, &Transform), i32>(|(_, enemy_transform)| {
-                    enemy_transform
-                        .translation
-                        .distance(transform.translation)
-                        .round() as i32
-                })
-                .next()
+        if down_beats(&metronome)
+            .iter()
+            .any(|&beat| within_nanos_window(&metronome, beat, grace_period))
         {
-            commands.spawn(bullet_bundle(
-                &mut meshes,
-                &mut materials,
-                transform,
-                3.0,
-                150.0,
-                1,
-                enemy,
-            ));
-        }
-        if keyboard_input.just_pressed(KeyCode::KeyK) {
-            // let grace_period = Fraction::from(90u64 * 1_000_000);
-
-            // if down_beats(&metronome)
-            //     .iter()
-            //     .any(|&beat| within_nanos_window(&metronome, beat, grace_period))
-            // {
-            let mut current_direction = Vec2::new(0., 0.);
-            if keyboard_input.pressed(KeyCode::KeyW) {
-                current_direction.y = 1.;
+            if keyboard_input.just_pressed(KeyCode::ArrowUp) {
+                commands
+                    .entity(entity)
+                    .with_child(laser_bundle(1, 4, 15., 70.));
             }
-            if keyboard_input.pressed(KeyCode::KeyS) {
-                current_direction.y = -1.;
-            }
-            if keyboard_input.pressed(KeyCode::KeyA) {
-                current_direction.x = -1.;
-            }
-            if keyboard_input.pressed(KeyCode::KeyD) {
-                current_direction.x = 1.;
-            }
-            if current_direction.length_squared() > 0. {
-                commands.entity(entity).insert(initial_slide(
-                    10.,
-                    current_direction,
-                    1,
+            if keyboard_input.just_pressed(KeyCode::ArrowDown) {
+                commands.entity(entity).with_child(aoe_bundle(
                     &metronome,
+                    &mut meshes,
+                    &mut materials,
+                    30.0,
+                    75.0,
+                    2,
                 ));
             }
+
+            #[allow(clippy::cast_possible_truncation)]
+            if keyboard_input.just_pressed(KeyCode::ArrowRight) {
+                commands.spawn(bullet_bundle(
+                    &mut meshes,
+                    &mut materials,
+                    transform,
+                    3.0,
+                    150.0,
+                    1,
+                ));
+            }
+            if keyboard_input.just_pressed(KeyCode::Space) {
+                let mut current_direction = Vec2::new(0., 0.);
+                if keyboard_input.pressed(KeyCode::KeyW) {
+                    current_direction.y = 1.;
+                }
+                if keyboard_input.pressed(KeyCode::KeyS) {
+                    current_direction.y = -1.;
+                }
+                if keyboard_input.pressed(KeyCode::KeyA) {
+                    current_direction.x = -1.;
+                }
+                if keyboard_input.pressed(KeyCode::KeyD) {
+                    current_direction.x = 1.;
+                }
+                if current_direction.length_squared() > 0. {
+                    commands.entity(entity).insert(initial_slide(
+                        10.,
+                        current_direction,
+                        1,
+                        &metronome,
+                    ));
+                }
+            }
         }
-        //}
 
         let mut velocity_desired = Vec2::ZERO;
         if keyboard_input.pressed(KeyCode::KeyW) {

@@ -7,6 +7,7 @@ Vampire Survivors like game with an emphasis on players collecting notes when th
 - The player has to hit the correct keyboard key corresponding to the notes that they put on the score for the instrument to actually play that note
 - Enemies drop xp when they are killed that needs to be collected
 - Fixed map to avoid level creation and camera controlling complexity
+- No aiming of abilities, it's too hard to move and aim while staying on beat
 
 ## On Level Up pick from 3 choices of notes with these features
 
@@ -107,7 +108,6 @@ Vampire Survivors like game with an emphasis on players collecting notes when th
 - Repeat a measure without having to play it with repeat
 
   <img width="236" height="150" alt="image" src="https://github.com/user-attachments/assets/72bdd80c-a05c-42d7-8067-404ef57179ae" />
-
 
 ### Defenses for the player
 

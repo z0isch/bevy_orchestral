@@ -65,8 +65,6 @@ pub fn aoe_system(
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
     mut aoe_query: Query<(Entity, &mut Aoe, &Transform)>,
-    mut collision_events: MessageReader<CollisionEvent>,
-    enemy_query: Query<(Entity, &Enemy, &Transform)>,
 ) {
     for (entity, mut aoe, _) in &mut aoe_query {
         aoe.timer.tick(time.delta());
