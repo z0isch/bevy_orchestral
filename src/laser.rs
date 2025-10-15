@@ -10,15 +10,15 @@ use crate::{
     enemy::Enemy,
     health::Health,
     metronome::{Metronome, MetronomeTimer},
-    nearest_enemy::NearestEnemy,
 };
 
-#[derive(Component)]
+#[derive(Component, Debug)]
 pub struct Laser {
     damage_per_beat: u128,
     timer: MetronomeTimer,
     entities_damaged_on_beat: HashMap<u8, HashSet<Entity>>,
-    target: Option<Entity>,
+    target: Entity,
+    direction: Option<Vec2>,
     length: f32,
     width: f32,
 }
@@ -26,27 +26,42 @@ pub struct Laser {
 #[derive(Bundle)]
 pub struct LaserBundle {
     laser: Laser,
-    nearest_enemy: NearestEnemy,
     transform: Transform,
+    audio_player: AudioPlayer,
+}
+
+#[derive(Resource)]
+pub struct LaserSFX {
+    pub fire: Handle<AudioSource>,
+}
+
+#[allow(clippy::needless_pass_by_value)]
+pub fn setup_laser_sfx(asset_server: Res<AssetServer>, mut commands: Commands) {
+    commands.insert_resource(LaserSFX {
+        fire: asset_server.load("sounds/laser.ogg"),
+    });
 }
 
 pub fn laser_bundle(
+    laser_sfx: &Res<LaserSFX>,
     damage_per_beat: u128,
     number_beats_duration: u8,
     width: f32,
     length: f32,
+    target: Entity,
 ) -> LaserBundle {
     LaserBundle {
         laser: Laser {
             damage_per_beat,
             timer: MetronomeTimer::new(number_beats_duration),
             entities_damaged_on_beat: HashMap::new(),
-            target: None,
+            target,
+            direction: None,
             length,
             width,
         },
-        nearest_enemy: NearestEnemy(None),
-        transform: Transform::from_xyz(0., 0., 1.),
+        transform: Transform::from_xyz(0., 0., 2.),
+        audio_player: AudioPlayer::new(laser_sfx.fire.clone()),
     }
 }
 
@@ -59,18 +74,16 @@ pub fn laser_system(
     metronome: Res<Metronome>,
     time: Res<Time>,
     mut commands: Commands,
-    mut laser_query: Query<(Entity, &mut Laser, &NearestEnemy, &mut Transform, &ChildOf)>,
+    mut laser_query: Query<(Entity, &mut Laser, &mut Transform, &ChildOf)>,
     parent_query: Query<&Transform, (With<Children>, (Without<Enemy>, Without<Laser>))>,
     mut enemy_query: Query<(Entity, &mut Health, &Transform), (With<Enemy>, Without<Laser>)>,
 ) {
     let rapier_context = rapier_context.single().unwrap();
-    for (laser_entity, mut laser, nearest_enemy, mut laser_transform, parent) in &mut laser_query {
-        if laser.target.is_none()
-            && let Some(nearest_enemy) = nearest_enemy.0
-            && let Ok((_, _, enemy_transform)) = enemy_query.get(nearest_enemy)
+    for (laser_entity, mut laser, mut laser_transform, parent) in &mut laser_query {
+        if laser.direction.is_none()
+            && let Ok((_, _, enemy_transform)) = enemy_query.get(laser.target)
             && let Ok(parent_transform) = parent_query.get(parent.parent())
         {
-            laser.target = Some(nearest_enemy);
             let direction = (enemy_transform.translation - parent_transform.translation)
                 .xy()
                 .normalize_or_zero();
@@ -79,8 +92,9 @@ pub fn laser_system(
                 direction.y.atan2(direction.x) + FRAC_PI_2,
             ));
             laser_transform.translation = direction.extend(1.) * laser.length / 2.;
+            laser.direction = Some(direction);
 
-            commands.entity(laser_entity).insert_if_new((
+            commands.entity(laser_entity).try_insert_if_new((
                 Mesh2d(meshes.add(Rectangle::new(laser.width, laser.length))),
                 MeshMaterial2d(materials.add(Color::hsva(1., 1., 1., 0.5))),
                 Collider::cuboid(laser.width / 2., laser.length / 2.),
@@ -90,10 +104,10 @@ pub fn laser_system(
             ));
         }
 
-        if laser.target.is_some() {
+        if laser.direction.is_some() {
             laser.timer.tick(&metronome, *time);
             if laser.timer.just_finished(&metronome) {
-                commands.entity(laser_entity).despawn();
+                commands.entity(laser_entity).try_despawn();
             } else if !laser.timer.finished() {
                 for (enemy_entity, mut health, _) in &mut enemy_query {
                     if rapier_context.intersection_pair(laser_entity, enemy_entity) == Some(true) {
@@ -102,14 +116,15 @@ pub fn laser_system(
                             .entities_damaged_on_beat
                             .entry(beats_elapsed)
                             .or_insert_with(HashSet::new);
-                        if entities_damaged.insert(enemy_entity) && health.current_health > 0 {
-                            health.current_health -= laser.damage_per_beat;
+                        if entities_damaged.insert(enemy_entity) {
+                            health.current_health =
+                                health.current_health.saturating_sub(laser.damage_per_beat);
                         }
                     }
                 }
             }
         } else {
-            commands.entity(laser_entity).despawn();
+            commands.entity(laser_entity).try_despawn();
         }
     }
 }

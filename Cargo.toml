@@ -9,6 +9,7 @@ bevy-inspector-egui = "0.34.0"
 bevy_aseprite_ultra = "0.7.0"
 bevy_ecs_tilemap = "0.17.0-RC.1"
 bevy_egui = "0.37.0"
+bevy_enhanced_input = "0.19.1"
 bevy_rapier2d = { version = "0.31.0", features = ["debug-render-2d"], git = "https://github.com/lukasfri/bevy_rapier.git" }
 fraction = "0.15.3"
 getrandom = {version = "0.3.3", features = ["wasm_js"]}

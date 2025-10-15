@@ -10,7 +10,6 @@ mod health;
 mod laser;
 mod map;
 mod metronome;
-mod nearest_enemy;
 mod note_highway;
 mod player;
 mod slide;
@@ -26,6 +25,7 @@ use bevy_aseprite_ultra::{
 };
 use bevy_ecs_tilemap::TilemapPlugin;
 use bevy_egui::EguiPlugin;
+use bevy_enhanced_input::prelude::{Press, *};
 use bevy_inspector_egui::quick::WorldInspectorPlugin;
 use bevy_rapier2d::{
     plugin::{NoUserData, RapierConfiguration, RapierPhysicsPlugin},
@@ -40,19 +40,18 @@ use rand::{Rng, rng};
 use crate::{
     aoe::{aoe_bundle, aoe_collision_system, aoe_system, process_aoe_duration},
     bounce::{bounce_system, initial_bounce, tile_bounce_system},
-    bullet::{bullet_bundle, bullet_collision_system, bullet_system},
+    bullet::{BulletSFX, bullet_bundle, bullet_collision_system, bullet_system, setup_bullet_sfx},
     enemy::Enemy,
     health::{
         Health, despawn_enemy_on_zero_health, health_bar_bundle, health_bar_system,
         on_health_bar_add,
     },
-    laser::{laser_bundle, laser_system},
+    laser::{LaserSFX, laser_bundle, laser_system, setup_laser_sfx},
     map::setup_map,
     metronome::{
         Metronome, down_beats, initial_metronome, is_down_beat, metronome_system,
         within_nanos_window,
     },
-    nearest_enemy::target_nearest_enemy,
     note_highway::{
         beat_line_system, note_highway_system, on_beat_line_system, setup_note_highway,
     },
@@ -61,8 +60,8 @@ use crate::{
     window_size::{WINDOW_HEIGHT, WINDOW_WIDTH, setup_window_size},
 };
 
-const SONG_BPM: u64 = 60;
-const SONG_FILE: &str = "sounds/song-60bpm.ogg";
+const SONG_BPM: u64 = 101;
+const SONG_FILE: &str = "sounds/song-101bpm.ogg";
 
 fn main() {
     App::new()
@@ -86,9 +85,11 @@ fn main() {
         .add_plugins(RapierPhysicsPlugin::<NoUserData>::pixels_per_meter(1.))
         //.add_plugins(RapierDebugRenderPlugin::default())
         .add_plugins(EguiPlugin::default())
+        .add_plugins(EnhancedInputPlugin)
         .add_plugins(
             WorldInspectorPlugin::new().run_if(input_toggle_active(false, KeyCode::Escape)),
         )
+        .add_input_context::<Player>()
         .add_systems(
             Startup,
             (
@@ -97,6 +98,8 @@ fn main() {
                 setup_map,
                 set_gravity,
                 setup_note_highway,
+                setup_laser_sfx,
+                setup_bullet_sfx,
             )
                 .chain(),
         )
@@ -104,7 +107,6 @@ fn main() {
         .add_systems(
             Update,
             (
-                toggle_audio,
                 note_highway_system,
                 on_beat_line_system,
                 beat_line_system,
@@ -119,17 +121,18 @@ fn main() {
                 health_bar_system,
                 spawn_enemy_system,
                 bullet_collision_system,
-                (
-                    control_player,
-                    enemy_movement_system,
-                    slide_system,
-                    player_animation,
-                )
-                    .chain(),
+                enemy_movement_system,
+                (slide_system, player_animation).chain(),
             ),
         )
-        .add_systems(PostUpdate, target_nearest_enemy)
         .add_observer(on_health_bar_add)
+        .add_observer(apply_movement)
+        .add_observer(toggle_audio)
+        .add_observer(toggle_muted)
+        .add_observer(apply_slide)
+        .add_observer(apply_laser)
+        .add_observer(apply_bullet)
+        .add_observer(apply_aoe)
         .run();
 }
 
@@ -144,6 +147,9 @@ fn set_gravity(rapier_config: Query<&mut RapierConfiguration>) {
 }
 
 #[derive(Resource)]
+struct GracePeriod(Fraction);
+
+#[derive(Resource)]
 struct EnemySpawnTimer {
     timer: Timer,
 }
@@ -151,6 +157,7 @@ struct EnemySpawnTimer {
 #[allow(clippy::needless_pass_by_value)]
 fn setup(asset_server: Res<AssetServer>, mut commands: Commands) {
     commands.insert_resource(initial_metronome(SONG_BPM));
+    commands.insert_resource(GracePeriod(Fraction::from(90u64 * 1_000_000)));
     commands.insert_resource(EnemySpawnTimer {
         timer: Timer::from_seconds(0.5, TimerMode::Repeating),
     });
@@ -182,7 +189,7 @@ fn setup(asset_server: Res<AssetServer>, mut commands: Commands) {
         },
         LockedAxes::ROTATION_LOCKED,
         Collider::capsule_y(100. * player_sprite_scale, 25. * player_sprite_scale),
-        MovementSpeed(1.),
+        MovementSpeed(0.5),
         Player,
         Velocity::zero(),
         Visibility::default(),
@@ -198,27 +205,79 @@ fn setup(asset_server: Res<AssetServer>, mut commands: Commands) {
             Sprite::default(),
             initial_bounce(1.1)
         )],
+        actions!(Player[(
+            Action::<Movement>::new(),
+            DeadZone::default(),
+            Bindings::spawn((
+                Cardinal::wasd_keys(),
+                Axial::left_stick(),
+            )),
+        ),(
+            Action::<ToggleAudio>::new(),
+            Press::default(),
+            bindings![KeyCode::KeyX, GamepadButton::Start],
+        ),(
+            Action::<ToggleMuted>::new(),
+            Press::default(),
+            bindings![KeyCode::KeyX, GamepadButton::Select],
+        ),(
+            Action::<SlideInputAction>::new(),
+            Press::default(),
+            bindings![KeyCode::Space, GamepadButton::LeftTrigger],
+        ),(
+            Action::<LaserInputAction>::new(),
+            Press::default(),
+            bindings![KeyCode::ArrowUp, GamepadButton::North],
+        ),(
+            Action::<BulletInputAction>::new(),
+            Press::default(),
+            bindings![KeyCode::ArrowRight, GamepadButton::East],
+        ),(
+            Action::<AoeInputAction>::new(),
+            Press::default(),
+            bindings![KeyCode::ArrowDown, GamepadButton::South],
+        )]),
     ));
 }
 
+#[derive(InputAction)]
+#[action_output(bool)]
+struct ToggleAudio;
+
+#[derive(InputAction)]
+#[action_output(bool)]
+struct ToggleMuted;
+
 #[allow(clippy::needless_pass_by_value)]
 fn toggle_audio(
+    _toggle_audio: On<Fire<ToggleAudio>>,
     mut audio_sink: Query<&mut AudioSink>,
     mut metronome: ResMut<Metronome>,
-    keyboard_input: Res<ButtonInput<KeyCode>>,
 ) {
-    if (keyboard_input.just_pressed(KeyCode::KeyX) || keyboard_input.just_pressed(KeyCode::KeyZ))
-        && let Ok(mut audio_sink) = audio_sink.single_mut()
-    {
+    if let Ok(mut audio_sink) = audio_sink.single_mut() {
         if metronome.started {
             audio_sink.pause();
             metronome.started = false;
         } else {
-            if keyboard_input.just_pressed(KeyCode::KeyZ) {
-                audio_sink.set_volume(Volume::SILENT);
-            } else {
-                audio_sink.set_volume(Volume::Linear(1.0));
-            }
+            audio_sink.set_volume(Volume::Linear(1.));
+            audio_sink.play();
+            metronome.started = true;
+        }
+    }
+}
+
+#[allow(clippy::needless_pass_by_value)]
+fn toggle_muted(
+    _toggle_muted: On<Fire<ToggleMuted>>,
+    mut audio_sink: Query<&mut AudioSink>,
+    mut metronome: ResMut<Metronome>,
+) {
+    if let Ok(mut audio_sink) = audio_sink.single_mut() {
+        if metronome.started {
+            audio_sink.pause();
+            metronome.started = false;
+        } else {
+            audio_sink.set_volume(Volume::SILENT);
             audio_sink.play();
             metronome.started = true;
         }
@@ -262,97 +321,147 @@ fn player_animation(
     }
 }
 
+#[derive(InputAction)]
+#[action_output(Vec2)]
+struct Movement;
+
 #[allow(clippy::needless_pass_by_value)]
-fn control_player(
-    metronome: Res<Metronome>,
-    mut commands: Commands,
-    mut meshes: ResMut<Assets<Mesh>>,
-    mut materials: ResMut<Assets<ColorMaterial>>,
+fn apply_movement(
+    movement: On<Fire<Movement>>,
     mut query: Query<
-        (
-            Entity,
-            &MovementSpeed,
-            &Transform,
-            &mut KinematicCharacterController,
-        ),
+        (&MovementSpeed, &mut KinematicCharacterController),
         (With<Player>, Without<Slide>),
     >,
-    keyboard_input: Res<ButtonInput<KeyCode>>,
 ) {
-    for (entity, movement_speed, transform, mut kinematic_character_controller) in &mut query {
-        let grace_period = Fraction::from(90u64 * 1_000_000);
-
-        if down_beats(&metronome)
-            .iter()
-            .any(|&beat| within_nanos_window(&metronome, beat, grace_period))
-        {
-            if keyboard_input.just_pressed(KeyCode::ArrowUp) {
-                commands
-                    .entity(entity)
-                    .with_child(laser_bundle(1, 4, 15., 70.));
-            }
-            if keyboard_input.just_pressed(KeyCode::ArrowDown) {
-                commands.entity(entity).with_child(aoe_bundle(
-                    &metronome,
-                    &mut meshes,
-                    &mut materials,
-                    30.0,
-                    75.0,
-                    2,
-                ));
-            }
-
-            #[allow(clippy::cast_possible_truncation)]
-            if keyboard_input.just_pressed(KeyCode::ArrowRight) {
-                commands.spawn(bullet_bundle(
-                    &mut meshes,
-                    &mut materials,
-                    transform,
-                    3.0,
-                    150.0,
-                    1,
-                ));
-            }
-            if keyboard_input.just_pressed(KeyCode::Space) {
-                let mut current_direction = Vec2::new(0., 0.);
-                if keyboard_input.pressed(KeyCode::KeyW) {
-                    current_direction.y = 1.;
-                }
-                if keyboard_input.pressed(KeyCode::KeyS) {
-                    current_direction.y = -1.;
-                }
-                if keyboard_input.pressed(KeyCode::KeyA) {
-                    current_direction.x = -1.;
-                }
-                if keyboard_input.pressed(KeyCode::KeyD) {
-                    current_direction.x = 1.;
-                }
-                if current_direction.length_squared() > 0. {
-                    commands.entity(entity).insert(initial_slide(
-                        10.,
-                        current_direction,
-                        1,
-                        &metronome,
-                    ));
-                }
-            }
-        }
-
-        let mut velocity_desired = Vec2::ZERO;
-        if keyboard_input.pressed(KeyCode::KeyW) {
-            velocity_desired.y = 1.;
-        }
-        if keyboard_input.pressed(KeyCode::KeyS) {
-            velocity_desired.y = -1.;
-        }
-        if keyboard_input.pressed(KeyCode::KeyA) {
-            velocity_desired.x = -1.;
-        }
-        if keyboard_input.pressed(KeyCode::KeyD) {
-            velocity_desired.x = 1.;
-        }
+    if let Ok((movement_speed, mut kinematic_character_controller)) =
+        query.get_mut(movement.context)
+    {
         kinematic_character_controller.translation =
-            Some(velocity_desired.normalize_or_zero() * movement_speed.0);
+            Some(movement.value.normalize_or_zero() * movement_speed.0);
+    }
+}
+
+#[derive(InputAction)]
+#[action_output(bool)]
+struct SlideInputAction;
+
+#[allow(clippy::needless_pass_by_value)]
+fn apply_slide(
+    slide_input_action: On<Fire<SlideInputAction>>,
+    mut commands: Commands,
+    query: Query<&KinematicCharacterController>,
+    metronome: Res<Metronome>,
+    grace_period: Res<GracePeriod>,
+) {
+    if let Ok(kinematic_character_controller) = query.get(slide_input_action.context)
+        && let Some(velocity) = kinematic_character_controller.translation
+        && down_beats()
+            .iter()
+            .any(|&beat| within_nanos_window(&metronome, beat, grace_period.0))
+    {
+        commands
+            .entity(slide_input_action.context)
+            .insert(initial_slide(
+                10.,
+                velocity.normalize_or_zero(),
+                1,
+                &metronome,
+            ));
+    }
+}
+
+#[derive(InputAction)]
+#[action_output(bool)]
+struct LaserInputAction;
+
+#[allow(clippy::needless_pass_by_value)]
+fn apply_laser(
+    laser_input_action: On<Fire<LaserInputAction>>,
+    mut commands: Commands,
+    player_query: Query<&Transform, With<Player>>,
+    enemy_query: Query<(Entity, &Transform), With<Enemy>>,
+    metronome: Res<Metronome>,
+    laser_sfx: Res<LaserSFX>,
+    grace_period: Res<GracePeriod>,
+) {
+    #[allow(clippy::cast_possible_truncation)]
+    if let Ok(player_transform) = player_query.get(laser_input_action.context)
+        && let Some((enemy, _)) = enemy_query
+            .iter()
+            .sort_by_key::<(Entity, &Transform), i32>(|(_, enemy_transform)| {
+                enemy_transform
+                    .translation
+                    .distance_squared(player_transform.translation) as i32
+            })
+            .next()
+        && down_beats()
+            .iter()
+            .any(|&beat| within_nanos_window(&metronome, beat, grace_period.0))
+    {
+        commands
+            .entity(laser_input_action.context)
+            .with_child(laser_bundle(&laser_sfx, 1, 2, 3., 300., enemy));
+    }
+}
+
+#[derive(InputAction)]
+#[action_output(bool)]
+struct BulletInputAction;
+
+#[allow(clippy::needless_pass_by_value)]
+fn apply_bullet(
+    bullet_input_action: On<Fire<BulletInputAction>>,
+    mut commands: Commands,
+    player_query: Query<&Transform, With<Player>>,
+    enemy_query: Query<(Entity, &Transform), With<Enemy>>,
+    metronome: Res<Metronome>,
+    bullet_sfx: Res<BulletSFX>,
+    grace_period: Res<GracePeriod>,
+) {
+    #[allow(clippy::cast_possible_truncation)]
+    if let Ok(player_transform) = player_query.get(bullet_input_action.context)
+        && let Some((enemy, _)) = enemy_query
+            .iter()
+            .sort_by_key::<(Entity, &Transform), i32>(|(_, enemy_transform)| {
+                enemy_transform
+                    .translation
+                    .distance_squared(player_transform.translation) as i32
+            })
+            .next()
+        && down_beats()
+            .iter()
+            .any(|&beat| within_nanos_window(&metronome, beat, grace_period.0))
+    {
+        commands.spawn(bullet_bundle(
+            &bullet_sfx,
+            player_transform,
+            3.0,
+            150.0,
+            3,
+            enemy,
+        ));
+    }
+}
+
+#[derive(InputAction)]
+#[action_output(bool)]
+struct AoeInputAction;
+
+#[allow(clippy::needless_pass_by_value)]
+fn apply_aoe(
+    aoe_input_action: On<Fire<AoeInputAction>>,
+    mut commands: Commands,
+    metronome: Res<Metronome>,
+    grace_period: Res<GracePeriod>,
+) {
+    #[allow(clippy::cast_possible_truncation)]
+    if down_beats()
+        .iter()
+        .any(|&beat| within_nanos_window(&metronome, beat, grace_period.0))
+    {
+        commands
+            .entity(aoe_input_action.context)
+            .with_child(aoe_bundle(&metronome, 30.0, 75.0, 2));
     }
 }
 

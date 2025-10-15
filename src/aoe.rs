@@ -20,19 +20,11 @@ pub struct Aoe {
 #[derive(Bundle)]
 pub struct AoeBundle {
     aoe: Aoe,
-    mesh: Mesh2d,
-    active_events: ActiveEvents,
-    sensor: Sensor,
-    material: MeshMaterial2d<ColorMaterial>,
-    collider: Collider,
-    collision_groups: CollisionGroups,
     transform: Transform,
 }
 
 pub fn aoe_bundle(
     metronome: &Metronome,
-    meshes: &mut Assets<Mesh>,
-    materials: &mut Assets<ColorMaterial>,
     initial_radius: f32,
     final_radius: f32,
     for_num_beats: u8,
@@ -48,13 +40,7 @@ pub fn aoe_bundle(
                 TimerMode::Repeating,
             ),
         },
-        mesh: Mesh2d(meshes.add(Circle::new(initial_radius))),
-        material: MeshMaterial2d(materials.add(Color::hsva(0., 0., 1., 0.1))),
-        collider: Collider::ball(initial_radius),
-        collision_groups: CollisionGroups::new(Group::GROUP_2, Group::ALL),
-        sensor: Sensor,
-        active_events: ActiveEvents::COLLISION_EVENTS,
-        transform: Transform::from_xyz(0., 0., 0.),
+        transform: Transform::from_xyz(0., 0., 2.),
     }
 }
 
@@ -64,12 +50,21 @@ pub fn aoe_system(
     time: Res<Time>,
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
+    mut materials: ResMut<Assets<ColorMaterial>>,
     mut aoe_query: Query<(Entity, &mut Aoe, &Transform)>,
 ) {
     for (entity, mut aoe, _) in &mut aoe_query {
+        commands.entity(entity).try_insert_if_new((
+            Mesh2d(meshes.add(Circle::new(aoe.initial_radius))),
+            MeshMaterial2d(materials.add(Color::hsva(0., 0., 1., 0.1))),
+            Collider::ball(aoe.initial_radius),
+            CollisionGroups::new(Group::GROUP_2, Group::ALL),
+            Sensor,
+            ActiveEvents::COLLISION_EVENTS,
+        ));
         aoe.timer.tick(time.delta());
         if aoe.timer.just_finished() {
-            commands.entity(entity).despawn();
+            commands.entity(entity).try_despawn();
         } else {
             let radius_diff = aoe.final_radius - aoe.initial_radius;
             #[allow(clippy::cast_precision_loss)]
@@ -79,7 +74,7 @@ pub fn aoe_system(
             let progress = nanos_so_far as f32 / total_nanos as f32;
             let radius = radius_diff.mul_add(progress, aoe.initial_radius);
 
-            commands.entity(entity).insert((
+            commands.entity(entity).try_insert((
                 Mesh2d(meshes.add(Circle::new(radius as f32))),
                 Collider::ball(radius),
             ));
@@ -103,7 +98,7 @@ pub fn process_aoe_duration(
     for (entity, mut aoe_duration, transform, mut velocity) in &mut query {
         aoe_duration.timer.tick(time.delta());
         if aoe_duration.timer.just_finished() {
-            commands.entity(entity).remove::<AoeDuration>();
+            commands.entity(entity).try_remove::<AoeDuration>();
             velocity.linvel = Vec2::ZERO;
         } else if let Ok(player_transform) = player_query.single_mut() {
             let direction = (transform.translation.xy() - player_transform.translation.xy())

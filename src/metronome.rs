@@ -68,11 +68,16 @@ pub fn metronome_system(time: Res<Time>, mut metronome: ResMut<Metronome>) {
     }
 }
 
-pub fn is_down_beat(metronome: &Metronome) -> bool {
-    down_beats(metronome).contains(&metronome.beat)
+#[allow(dead_code)]
+pub fn all_beats() -> Vec<u8> {
+    vec![0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15]
 }
 
-pub fn down_beats(_metronome: &Metronome) -> Vec<u8> {
+pub fn is_down_beat(metronome: &Metronome) -> bool {
+    down_beats().contains(&metronome.beat)
+}
+
+pub fn down_beats() -> Vec<u8> {
     vec![0, 4, 8, 12]
 }
 
@@ -96,12 +101,14 @@ pub fn nanos_from_beat(metronome: &Metronome, beat: u8) -> Fraction {
     }
 }
 
+#[derive(Debug)]
 pub struct MetronomeTimer {
     pub number_beats_duration: u8,
     timer_state: MetronomeTimerState,
     pub stopwatch: Stopwatch,
 }
 
+#[derive(Debug)]
 enum MetronomeTimerState {
     NotStarted,
     Running { beats_elapsed: i8 },
