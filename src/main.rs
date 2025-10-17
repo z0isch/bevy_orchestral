@@ -103,7 +103,7 @@ fn main() {
             )
                 .chain(),
         )
-        .add_systems(PreUpdate, metronome_system)
+        .add_systems(First, metronome_system)
         .add_systems(
             Update,
             (
@@ -122,7 +122,8 @@ fn main() {
                 spawn_enemy_system,
                 bullet_collision_system,
                 enemy_movement_system,
-                (slide_system, player_animation).chain(),
+                slide_system,
+                player_animation,
             ),
         )
         .add_observer(on_health_bar_add)
@@ -130,9 +131,10 @@ fn main() {
         .add_observer(toggle_audio)
         .add_observer(toggle_muted)
         .add_observer(apply_slide)
-        .add_observer(apply_laser)
-        .add_observer(apply_bullet)
-        .add_observer(apply_aoe)
+        .add_observer(apply_north_note_played)
+        .add_observer(apply_east_note_played)
+        .add_observer(apply_south_note_played)
+        .add_observer(apply_west_note_played)
         .run();
 }
 
@@ -219,23 +221,28 @@ fn setup(asset_server: Res<AssetServer>, mut commands: Commands) {
         ),(
             Action::<ToggleMuted>::new(),
             Press::default(),
-            bindings![KeyCode::KeyX, GamepadButton::Select],
+            bindings![KeyCode::KeyZ, GamepadButton::Select],
         ),(
             Action::<SlideInputAction>::new(),
             Press::default(),
             bindings![KeyCode::Space, GamepadButton::LeftTrigger],
         ),(
-            Action::<LaserInputAction>::new(),
+            Action::<NorthNotePlayed>::new(),
             Press::default(),
             bindings![KeyCode::ArrowUp, GamepadButton::North],
         ),(
-            Action::<BulletInputAction>::new(),
+            Action::<EastNotePlayed>::new(),
             Press::default(),
             bindings![KeyCode::ArrowRight, GamepadButton::East],
         ),(
-            Action::<AoeInputAction>::new(),
+            Action::<SouthNotePlayed>::new(),
             Press::default(),
             bindings![KeyCode::ArrowDown, GamepadButton::South],
+        ),
+        (
+            Action::<WestNotePlayed>::new(),
+            Press::default(),
+            bindings![KeyCode::ArrowLeft, GamepadButton::West],
         )]),
     ));
 }
@@ -370,98 +377,193 @@ fn apply_slide(
     }
 }
 
+fn nearest_enemy(
+    player_entity: Entity,
+    player_query: Query<&Transform, With<Player>>,
+    enemy_query: Query<(Entity, &Transform), With<Enemy>>,
+) -> Option<Entity> {
+    player_query
+        .get(player_entity)
+        .ok()
+        .and_then(|player_transform| {
+            #[allow(clippy::cast_possible_truncation)]
+            enemy_query
+                .iter()
+                .sort_by_key::<(Entity, &Transform), i32>(|(_, enemy_transform)| {
+                    enemy_transform
+                        .translation
+                        .distance_squared(player_transform.translation) as i32
+                })
+                .next()
+                .map(|(entity, _)| entity)
+        })
+}
+
+pub enum NotePlayed {
+    NorthNote,
+    EastNote,
+    SouthNote,
+    WestNote,
+}
+
 #[derive(InputAction)]
 #[action_output(bool)]
-struct LaserInputAction;
+struct NorthNotePlayed();
+
+#[derive(InputAction)]
+#[action_output(bool)]
+struct EastNotePlayed();
+
+#[derive(InputAction)]
+#[action_output(bool)]
+struct SouthNotePlayed();
+
+#[derive(InputAction)]
+#[action_output(bool)]
+struct WestNotePlayed();
 
 #[allow(clippy::needless_pass_by_value)]
-fn apply_laser(
-    laser_input_action: On<Fire<LaserInputAction>>,
+#[allow(clippy::too_many_arguments)]
+fn apply_north_note_played(
+    note_played: On<Fire<NorthNotePlayed>>,
+    commands: Commands,
+    player_query: Query<&Transform, With<Player>>,
+    enemy_query: Query<(Entity, &Transform), With<Enemy>>,
+    metronome: Res<Metronome>,
+    laser_sfx: Res<LaserSFX>,
+    bullet_sfx: Res<BulletSFX>,
+    grace_period: Res<GracePeriod>,
+) {
+    apply_note_played(
+        NotePlayed::NorthNote,
+        note_played.context,
+        commands,
+        player_query,
+        enemy_query,
+        metronome,
+        laser_sfx,
+        bullet_sfx,
+        grace_period,
+    );
+}
+
+#[allow(clippy::needless_pass_by_value)]
+#[allow(clippy::too_many_arguments)]
+fn apply_east_note_played(
+    note_played: On<Fire<EastNotePlayed>>,
+    commands: Commands,
+    player_query: Query<&Transform, With<Player>>,
+    enemy_query: Query<(Entity, &Transform), With<Enemy>>,
+    metronome: Res<Metronome>,
+    laser_sfx: Res<LaserSFX>,
+    bullet_sfx: Res<BulletSFX>,
+    grace_period: Res<GracePeriod>,
+) {
+    apply_note_played(
+        NotePlayed::EastNote,
+        note_played.context,
+        commands,
+        player_query,
+        enemy_query,
+        metronome,
+        laser_sfx,
+        bullet_sfx,
+        grace_period,
+    );
+}
+
+#[allow(clippy::needless_pass_by_value)]
+#[allow(clippy::too_many_arguments)]
+fn apply_south_note_played(
+    note_played: On<Fire<SouthNotePlayed>>,
+    commands: Commands,
+    player_query: Query<&Transform, With<Player>>,
+    enemy_query: Query<(Entity, &Transform), With<Enemy>>,
+    metronome: Res<Metronome>,
+    laser_sfx: Res<LaserSFX>,
+    bullet_sfx: Res<BulletSFX>,
+    grace_period: Res<GracePeriod>,
+) {
+    apply_note_played(
+        NotePlayed::SouthNote,
+        note_played.context,
+        commands,
+        player_query,
+        enemy_query,
+        metronome,
+        laser_sfx,
+        bullet_sfx,
+        grace_period,
+    );
+}
+
+#[allow(clippy::needless_pass_by_value)]
+#[allow(clippy::too_many_arguments)]
+fn apply_west_note_played(
+    note_played: On<Fire<WestNotePlayed>>,
+    commands: Commands,
+    player_query: Query<&Transform, With<Player>>,
+    enemy_query: Query<(Entity, &Transform), With<Enemy>>,
+    metronome: Res<Metronome>,
+    laser_sfx: Res<LaserSFX>,
+    bullet_sfx: Res<BulletSFX>,
+    grace_period: Res<GracePeriod>,
+) {
+    apply_note_played(
+        NotePlayed::WestNote,
+        note_played.context,
+        commands,
+        player_query,
+        enemy_query,
+        metronome,
+        laser_sfx,
+        bullet_sfx,
+        grace_period,
+    );
+}
+
+#[allow(clippy::needless_pass_by_value)]
+#[allow(clippy::too_many_arguments)]
+fn apply_note_played(
+    note_played: NotePlayed,
+    player_entity: Entity,
     mut commands: Commands,
     player_query: Query<&Transform, With<Player>>,
     enemy_query: Query<(Entity, &Transform), With<Enemy>>,
     metronome: Res<Metronome>,
     laser_sfx: Res<LaserSFX>,
-    grace_period: Res<GracePeriod>,
-) {
-    #[allow(clippy::cast_possible_truncation)]
-    if let Ok(player_transform) = player_query.get(laser_input_action.context)
-        && let Some((enemy, _)) = enemy_query
-            .iter()
-            .sort_by_key::<(Entity, &Transform), i32>(|(_, enemy_transform)| {
-                enemy_transform
-                    .translation
-                    .distance_squared(player_transform.translation) as i32
-            })
-            .next()
-        && down_beats()
-            .iter()
-            .any(|&beat| within_nanos_window(&metronome, beat, grace_period.0))
-    {
-        commands
-            .entity(laser_input_action.context)
-            .with_child(laser_bundle(&laser_sfx, 1, 2, 3., 300., enemy));
-    }
-}
-
-#[derive(InputAction)]
-#[action_output(bool)]
-struct BulletInputAction;
-
-#[allow(clippy::needless_pass_by_value)]
-fn apply_bullet(
-    bullet_input_action: On<Fire<BulletInputAction>>,
-    mut commands: Commands,
-    player_query: Query<&Transform, With<Player>>,
-    enemy_query: Query<(Entity, &Transform), With<Enemy>>,
-    metronome: Res<Metronome>,
     bullet_sfx: Res<BulletSFX>,
     grace_period: Res<GracePeriod>,
 ) {
-    #[allow(clippy::cast_possible_truncation)]
-    if let Ok(player_transform) = player_query.get(bullet_input_action.context)
-        && let Some((enemy, _)) = enemy_query
-            .iter()
-            .sort_by_key::<(Entity, &Transform), i32>(|(_, enemy_transform)| {
-                enemy_transform
-                    .translation
-                    .distance_squared(player_transform.translation) as i32
-            })
-            .next()
+    if let Ok(player_transform) = player_query.get(player_entity)
+        && let Some(enemy) = nearest_enemy(player_entity, player_query, enemy_query)
         && down_beats()
             .iter()
             .any(|&beat| within_nanos_window(&metronome, beat, grace_period.0))
     {
-        commands.spawn(bullet_bundle(
-            &bullet_sfx,
-            player_transform,
-            3.0,
-            150.0,
-            3,
-            enemy,
-        ));
-    }
-}
-
-#[derive(InputAction)]
-#[action_output(bool)]
-struct AoeInputAction;
-
-#[allow(clippy::needless_pass_by_value)]
-fn apply_aoe(
-    aoe_input_action: On<Fire<AoeInputAction>>,
-    mut commands: Commands,
-    metronome: Res<Metronome>,
-    grace_period: Res<GracePeriod>,
-) {
-    #[allow(clippy::cast_possible_truncation)]
-    if down_beats()
-        .iter()
-        .any(|&beat| within_nanos_window(&metronome, beat, grace_period.0))
-    {
-        commands
-            .entity(aoe_input_action.context)
-            .with_child(aoe_bundle(&metronome, 30.0, 75.0, 2));
+        match note_played {
+            NotePlayed::NorthNote => {
+                commands
+                    .entity(player_entity)
+                    .with_child(laser_bundle(&laser_sfx, 1, 2, 3., 300., enemy));
+            }
+            NotePlayed::EastNote => {
+                commands.spawn(bullet_bundle(
+                    &bullet_sfx,
+                    player_transform,
+                    3.0,
+                    150.0,
+                    3,
+                    enemy,
+                ));
+            }
+            NotePlayed::SouthNote => {
+                commands
+                    .entity(player_entity)
+                    .with_child(aoe_bundle(&metronome, 30.0, 75.0, 2));
+            }
+            NotePlayed::WestNote => {}
+        }
     }
 }
 
