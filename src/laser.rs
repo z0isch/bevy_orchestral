@@ -10,6 +10,7 @@ use crate::{
     enemy::Enemy,
     health::Health,
     metronome::{Metronome, MetronomeTimer},
+    nearest_entity::find_nearest_entity,
 };
 
 #[derive(Component, Debug)]
@@ -17,7 +18,6 @@ pub struct Laser {
     damage_per_beat: u128,
     timer: MetronomeTimer,
     entities_damaged_on_beat: HashMap<u8, HashSet<Entity>>,
-    target: Entity,
     direction: Option<Vec2>,
     length: f32,
     width: f32,
@@ -48,14 +48,12 @@ pub fn laser_bundle(
     number_beats_duration: u8,
     width: f32,
     length: f32,
-    target: Entity,
 ) -> LaserBundle {
     LaserBundle {
         laser: Laser {
             damage_per_beat,
             timer: MetronomeTimer::new(number_beats_duration),
             entities_damaged_on_beat: HashMap::new(),
-            target,
             direction: None,
             length,
             width,
@@ -81,8 +79,9 @@ pub fn laser_system(
     let rapier_context = rapier_context.single().unwrap();
     for (laser_entity, mut laser, mut laser_transform, parent) in &mut laser_query {
         if laser.direction.is_none()
-            && let Ok((_, _, enemy_transform)) = enemy_query.get(laser.target)
             && let Ok(parent_transform) = parent_query.get(parent.parent())
+            && let Some((_, enemy_transform)) =
+                find_nearest_entity(*parent_transform, enemy_query.transmute_lens().query())
         {
             let direction = (enemy_transform.translation - parent_transform.translation)
                 .xy()

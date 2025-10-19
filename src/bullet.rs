@@ -1,14 +1,14 @@
 use bevy::prelude::*;
 use bevy_rapier2d::prelude::*;
 
-use crate::{enemy::Enemy, health::Health};
+use crate::{enemy::Enemy, health::Health, nearest_entity::find_nearest_entity};
 
 #[derive(Component)]
 pub struct Bullet {
     radius: f32,
     velocity: f32,
     damage: u128,
-    target: Entity,
+    target: Option<Entity>,
 }
 
 #[derive(Resource)]
@@ -33,25 +33,19 @@ pub struct BulletBundle {
 
 pub fn bullet_bundle(
     bullet_sfx: &Res<BulletSFX>,
-    player_transform: &Transform,
     radius: f32,
     velocity: f32,
     damage: u128,
-    target: Entity,
 ) -> BulletBundle {
     BulletBundle {
         bullet: Bullet {
             radius,
             velocity,
             damage,
-            target,
+            target: None,
         },
 
-        transform: Transform::from_xyz(
-            player_transform.translation.x,
-            player_transform.translation.y,
-            2.,
-        ),
+        transform: Transform::from_xyz(0., 0., 2.),
         velocity: Velocity::zero(),
         audio_player: AudioPlayer::new(bullet_sfx.fire.clone()),
     }
@@ -61,24 +55,37 @@ pub fn bullet_system(
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<ColorMaterial>>,
     mut commands: Commands,
-    mut bullet_query: Query<(Entity, &Bullet, &Transform, &mut Velocity)>,
-    enemy_query: Query<(Entity, &Transform), With<Enemy>>,
+    mut bullet_query: Query<(Entity, &mut Bullet, &mut Velocity, &ChildOf)>,
+    parent_query: Query<&Transform, (With<Children>, (Without<Enemy>, Without<Bullet>))>,
+    mut enemy_query: Query<(Entity, &Transform), With<Enemy>>,
 ) {
-    for (bullet_entity, bullet, transform, mut velocity) in &mut bullet_query {
-        if let Ok((_, enemy_transform)) = enemy_query.get(bullet.target) {
-            let direction =
-                (enemy_transform.translation.xy() - transform.translation.xy()).normalize_or_zero();
-            velocity.linvel = direction * bullet.velocity;
-            commands.entity(bullet_entity).try_insert_if_new((
-                Mesh2d(meshes.add(Circle::new(bullet.radius))),
-                MeshMaterial2d(materials.add(Color::hsva(1., 1., 1., 1.))),
-                Collider::ball(bullet.radius),
-                CollisionGroups::new(Group::GROUP_2, Group::ALL),
-                Sensor,
-                RigidBody::KinematicVelocityBased,
-            ));
-        } else {
-            commands.entity(bullet_entity).try_despawn();
+    for (bullet_entity, mut bullet, mut velocity, parent) in &mut bullet_query {
+        if let Ok(parent_transform) = parent_query.get(parent.parent()) {
+            if bullet.target.is_none()
+                && let Some((enemy_entity, _)) =
+                    find_nearest_entity(*parent_transform, enemy_query.transmute_lens().query())
+            {
+                bullet.target = Some(enemy_entity);
+            }
+
+            if let Some(target) = bullet.target
+                && let Ok((_, enemy_transform)) = enemy_query.get(target)
+            {
+                let direction = (enemy_transform.translation.xy()
+                    - parent_transform.translation.xy())
+                .normalize_or_zero();
+                velocity.linvel = direction * bullet.velocity;
+                commands.entity(bullet_entity).try_insert_if_new((
+                    Mesh2d(meshes.add(Circle::new(bullet.radius))),
+                    MeshMaterial2d(materials.add(Color::hsva(1., 1., 1., 1.))),
+                    Collider::ball(bullet.radius),
+                    CollisionGroups::new(Group::GROUP_2, Group::ALL),
+                    Sensor,
+                    RigidBody::KinematicVelocityBased,
+                ));
+            } else {
+                commands.entity(bullet_entity).try_despawn();
+            }
         }
     }
 }
