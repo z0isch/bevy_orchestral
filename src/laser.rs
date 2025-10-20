@@ -79,24 +79,18 @@ pub fn laser_system(
 ) {
     let rapier_context = rapier_context.single().unwrap();
     for (laser_entity, mut laser, mut laser_transform, parent) in &mut laser_query {
-        if laser.direction.is_none()
-            && let Ok(parent_transform) = parent_query.get(parent.parent())
-            && let Some((_, enemy_transform)) =
-                find_nearest_entity(*parent_transform, enemy_query.transmute_lens().query())
-        {
-            let direction = (enemy_transform.translation - parent_transform.translation)
-                .xy()
-                .normalize_or_zero();
-
-            laser_transform.rotate(Quat::from_rotation_z(
-                direction.y.atan2(direction.x) + FRAC_PI_2,
-            ));
-            laser_transform.translation = direction.extend(1.) * laser.length / 2.;
-            laser.direction = Some(direction);
-        }
-
         if laser.direction.is_none() {
-            let direction = Vec2::from_angle(rng().random_range(0.0..std::f32::consts::TAU));
+            let direction = if let Ok(parent_transform) = parent_query.get(parent.parent())
+                && let Some((_, enemy_transform)) =
+                    find_nearest_entity(*parent_transform, enemy_query.transmute_lens().query())
+            {
+                (enemy_transform.translation - parent_transform.translation)
+                    .xy()
+                    .normalize_or_zero()
+            } else {
+                Vec2::from_angle(rng().random_range(0.0..std::f32::consts::TAU))
+            };
+
             laser_transform.rotate(Quat::from_rotation_z(
                 direction.y.atan2(direction.x) + FRAC_PI_2,
             ));

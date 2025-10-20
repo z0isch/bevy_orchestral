@@ -1,10 +1,10 @@
-use bevy::{log, prelude::*};
+use bevy::prelude::*;
 use bevy_rapier2d::prelude::*;
 
 use crate::{
     enemy::Enemy,
     health::Health,
-    metronome::{Metronome, MetronomeTimer, closest_beat},
+    metronome::{Metronome, MetronomeTimer},
     nearest_entity::find_nearest_entity,
 };
 
@@ -19,7 +19,6 @@ pub struct BulletLauncher {
 
 #[derive(Component)]
 pub struct Bullet {
-    radius: f32,
     velocity: f32,
     damage: u128,
     target: Option<Entity>,
@@ -85,15 +84,9 @@ pub fn bullet_launcher_system(
                     |b| metronome.is_beat_start_frame && b != bullet_launcher.timer.beats_elapsed(),
                 )
             {
-                log::info!(
-                    "{}: Firing bullet on beat {}",
-                    bullet_launcher.last_fired_on_beat.unwrap_or(255),
-                    bullet_launcher.timer.beats_elapsed()
-                );
                 bullet_launcher.last_fired_on_beat = Some(bullet_launcher.timer.beats_elapsed());
                 commands.spawn((
                     Bullet {
-                        radius: bullet_launcher.radius,
                         velocity: bullet_launcher.velocity,
                         damage: bullet_launcher.damage,
                         target: None,

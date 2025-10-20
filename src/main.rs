@@ -42,8 +42,8 @@ use crate::{
     aoe::{aoe_bundle, aoe_collision_system, aoe_system, process_aoe_duration},
     bounce::{bounce_system, initial_bounce, tile_bounce_system},
     bullet::{
-        BulletSFX, bullet_collision_system, bullet_launcher_bundle, bullet_launcher_system,
-        bullet_system, setup_bullet_sfx,
+        bullet_collision_system, bullet_launcher_bundle, bullet_launcher_system, bullet_system,
+        setup_bullet_sfx,
     },
     enemy::Enemy,
     health::{
@@ -412,7 +412,6 @@ fn apply_north_note_played(
     commands: Commands,
     metronome: Res<Metronome>,
     laser_sfx: Res<LaserSFX>,
-    bullet_sfx: Res<BulletSFX>,
     grace_period: Res<GracePeriod>,
 ) {
     apply_note_played(
@@ -421,7 +420,6 @@ fn apply_north_note_played(
         commands,
         metronome,
         laser_sfx,
-        bullet_sfx,
         grace_period,
     );
 }
@@ -433,7 +431,6 @@ fn apply_east_note_played(
     commands: Commands,
     metronome: Res<Metronome>,
     laser_sfx: Res<LaserSFX>,
-    bullet_sfx: Res<BulletSFX>,
     grace_period: Res<GracePeriod>,
 ) {
     apply_note_played(
@@ -442,7 +439,6 @@ fn apply_east_note_played(
         commands,
         metronome,
         laser_sfx,
-        bullet_sfx,
         grace_period,
     );
 }
@@ -454,7 +450,6 @@ fn apply_south_note_played(
     commands: Commands,
     metronome: Res<Metronome>,
     laser_sfx: Res<LaserSFX>,
-    bullet_sfx: Res<BulletSFX>,
     grace_period: Res<GracePeriod>,
 ) {
     apply_note_played(
@@ -463,7 +458,6 @@ fn apply_south_note_played(
         commands,
         metronome,
         laser_sfx,
-        bullet_sfx,
         grace_period,
     );
 }
@@ -475,7 +469,6 @@ fn apply_west_note_played(
     commands: Commands,
     metronome: Res<Metronome>,
     laser_sfx: Res<LaserSFX>,
-    bullet_sfx: Res<BulletSFX>,
     grace_period: Res<GracePeriod>,
 ) {
     apply_note_played(
@@ -484,7 +477,6 @@ fn apply_west_note_played(
         commands,
         metronome,
         laser_sfx,
-        bullet_sfx,
         grace_period,
     );
 }
@@ -497,7 +489,6 @@ fn apply_note_played(
     mut commands: Commands,
     metronome: Res<Metronome>,
     laser_sfx: Res<LaserSFX>,
-    bullet_sfx: Res<BulletSFX>,
     grace_period: Res<GracePeriod>,
 ) {
     if down_beats()
@@ -513,7 +504,7 @@ fn apply_note_played(
             NotePlayed::EastNote => {
                 commands
                     .entity(player_entity)
-                    .with_child(bullet_launcher_bundle(3.0, 150.0, 3, 8));
+                    .with_child(bullet_launcher_bundle(3.0, 150.0, 3, 4));
             }
             NotePlayed::SouthNote => {
                 commands
