@@ -5,6 +5,7 @@ use std::{
 
 use bevy::prelude::*;
 use bevy_rapier2d::prelude::*;
+use rand::{Rng, rng};
 
 use crate::{
     enemy::Enemy,
@@ -92,38 +93,43 @@ pub fn laser_system(
             ));
             laser_transform.translation = direction.extend(1.) * laser.length / 2.;
             laser.direction = Some(direction);
-
-            commands.entity(laser_entity).try_insert_if_new((
-                Mesh2d(meshes.add(Rectangle::new(laser.width, laser.length))),
-                MeshMaterial2d(materials.add(Color::hsva(1., 1., 1., 0.5))),
-                Collider::cuboid(laser.width / 2., laser.length / 2.),
-                CollisionGroups::new(Group::GROUP_2, Group::ALL),
-                Sensor,
-                RigidBody::KinematicVelocityBased,
-            ));
         }
 
-        if laser.direction.is_some() {
-            laser.timer.tick(&metronome, *time);
-            if laser.timer.just_finished(&metronome) {
-                commands.entity(laser_entity).try_despawn();
-            } else if !laser.timer.finished() {
-                for (enemy_entity, mut health, _) in &mut enemy_query {
-                    if rapier_context.intersection_pair(laser_entity, enemy_entity) == Some(true) {
-                        let beats_elapsed = laser.timer.beats_elapsed();
-                        let entities_damaged = laser
-                            .entities_damaged_on_beat
-                            .entry(beats_elapsed)
-                            .or_insert_with(HashSet::new);
-                        if entities_damaged.insert(enemy_entity) {
-                            health.current_health =
-                                health.current_health.saturating_sub(laser.damage_per_beat);
-                        }
+        if laser.direction.is_none() {
+            let direction = Vec2::from_angle(rng().random_range(0.0..std::f32::consts::TAU));
+            laser_transform.rotate(Quat::from_rotation_z(
+                direction.y.atan2(direction.x) + FRAC_PI_2,
+            ));
+            laser_transform.translation = direction.extend(1.) * laser.length / 2.;
+            laser.direction = Some(direction);
+        }
+
+        commands.entity(laser_entity).try_insert_if_new((
+            Mesh2d(meshes.add(Rectangle::new(laser.width, laser.length))),
+            MeshMaterial2d(materials.add(Color::hsva(1., 1., 1., 0.5))),
+            Collider::cuboid(laser.width / 2., laser.length / 2.),
+            CollisionGroups::new(Group::GROUP_2, Group::ALL),
+            Sensor,
+            RigidBody::KinematicVelocityBased,
+        ));
+
+        laser.timer.tick(&metronome, *time);
+        if laser.timer.just_finished(&metronome) {
+            commands.entity(laser_entity).try_despawn();
+        } else if !laser.timer.finished() {
+            for (enemy_entity, mut health, _) in &mut enemy_query {
+                if rapier_context.intersection_pair(laser_entity, enemy_entity) == Some(true) {
+                    let beats_elapsed = laser.timer.beats_elapsed();
+                    let entities_damaged = laser
+                        .entities_damaged_on_beat
+                        .entry(beats_elapsed)
+                        .or_insert_with(HashSet::new);
+                    if entities_damaged.insert(enemy_entity) {
+                        health.current_health =
+                            health.current_health.saturating_sub(laser.damage_per_beat);
                     }
                 }
             }
-        } else {
-            commands.entity(laser_entity).try_despawn();
         }
     }
 }

@@ -41,7 +41,10 @@ use rand::{Rng, rng};
 use crate::{
     aoe::{aoe_bundle, aoe_collision_system, aoe_system, process_aoe_duration},
     bounce::{bounce_system, initial_bounce, tile_bounce_system},
-    bullet::{BulletSFX, bullet_bundle, bullet_collision_system, bullet_system, setup_bullet_sfx},
+    bullet::{
+        BulletSFX, bullet_collision_system, bullet_launcher_bundle, bullet_launcher_system,
+        bullet_system, setup_bullet_sfx,
+    },
     enemy::Enemy,
     health::{
         Health, despawn_enemy_on_zero_health, health_bar_bundle, health_bar_system,
@@ -61,8 +64,8 @@ use crate::{
     window_size::{WINDOW_HEIGHT, WINDOW_WIDTH, setup_window_size},
 };
 
-const SONG_BPM: u64 = 101;
-const SONG_FILE: &str = "sounds/song-101bpm.ogg";
+const SONG_BPM: u64 = 85;
+const SONG_FILE: &str = "sounds/clicktrack-85bpm.ogg";
 
 fn main() {
     App::new()
@@ -105,6 +108,7 @@ fn main() {
                 .chain(),
         )
         .add_systems(First, metronome_system)
+        .add_systems(Update, bullet_launcher_system)
         .add_systems(
             Update,
             (
@@ -117,6 +121,7 @@ fn main() {
                 aoe_collision_system,
                 process_aoe_duration,
                 bullet_system,
+                bullet_launcher_system,
                 laser_system,
                 despawn_enemy_on_zero_health,
                 health_bar_system,
@@ -504,15 +509,12 @@ fn apply_note_played(
             NotePlayed::NorthNote => {
                 commands
                     .entity(player_entity)
-                    .with_child(laser_bundle(&laser_sfx, 1, 2, 3., 300.));
+                    .with_child(laser_bundle(&laser_sfx, 1, 4, 3., 300.));
             }
             NotePlayed::EastNote => {
-                commands.entity(player_entity).with_child(bullet_bundle(
-                    &bullet_sfx,
-                    3.0,
-                    150.0,
-                    3,
-                ));
+                commands
+                    .entity(player_entity)
+                    .with_child(bullet_launcher_bundle(3.0, 150.0, 3, 8));
             }
             NotePlayed::SouthNote => {
                 commands
@@ -599,7 +601,7 @@ fn enemy_movement_system(
             let mut rng = rng();
             let speed_variation = rng.random_range(-0.2..=0.2);
             let varied_velocity = movement_speed.0 * (1.0 + speed_variation);
-            commands.entity(entity).insert(initial_slide(
+            commands.entity(entity).try_insert(initial_slide(
                 varied_velocity,
                 player_transform.translation.xy() - enemy_transform.translation.xy(),
                 1,

@@ -1,7 +1,21 @@
-use bevy::prelude::*;
+use bevy::{log, prelude::*};
 use bevy_rapier2d::prelude::*;
 
-use crate::{enemy::Enemy, health::Health, nearest_entity::find_nearest_entity};
+use crate::{
+    enemy::Enemy,
+    health::Health,
+    metronome::{Metronome, MetronomeTimer, closest_beat},
+    nearest_entity::find_nearest_entity,
+};
+
+#[derive(Component)]
+pub struct BulletLauncher {
+    radius: f32,
+    velocity: f32,
+    damage: u128,
+    timer: MetronomeTimer,
+    last_fired_on_beat: Option<u8>,
+}
 
 #[derive(Component)]
 pub struct Bullet {
@@ -24,68 +38,106 @@ pub fn setup_bullet_sfx(asset_server: Res<AssetServer>, mut commands: Commands) 
 }
 
 #[derive(Bundle)]
-pub struct BulletBundle {
-    bullet: Bullet,
+pub struct BulletLauncherBundle {
+    bullet_launcher: BulletLauncher,
     transform: Transform,
-    velocity: Velocity,
-    audio_player: AudioPlayer,
 }
 
-pub fn bullet_bundle(
-    bullet_sfx: &Res<BulletSFX>,
+pub fn bullet_launcher_bundle(
     radius: f32,
     velocity: f32,
     damage: u128,
-) -> BulletBundle {
-    BulletBundle {
-        bullet: Bullet {
+    number_beats_duration: u8,
+) -> BulletLauncherBundle {
+    BulletLauncherBundle {
+        bullet_launcher: BulletLauncher {
             radius,
             velocity,
+            timer: MetronomeTimer::new(number_beats_duration),
             damage,
-            target: None,
+            last_fired_on_beat: None,
         },
 
         transform: Transform::from_xyz(0., 0., 2.),
-        velocity: Velocity::zero(),
-        audio_player: AudioPlayer::new(bullet_sfx.fire.clone()),
     }
 }
 
-pub fn bullet_system(
+#[allow(clippy::too_many_arguments)]
+#[allow(clippy::needless_pass_by_value)]
+pub fn bullet_launcher_system(
+    bullet_sfx: Res<BulletSFX>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<ColorMaterial>>,
     mut commands: Commands,
-    mut bullet_query: Query<(Entity, &mut Bullet, &mut Velocity, &ChildOf)>,
-    parent_query: Query<&Transform, (With<Children>, (Without<Enemy>, Without<Bullet>))>,
-    mut enemy_query: Query<(Entity, &Transform), With<Enemy>>,
+    metronome: Res<Metronome>,
+    time: Res<Time>,
+    mut bullet_launcher_query: Query<(Entity, &mut BulletLauncher, &ChildOf)>,
+    parent_query: Query<&Transform, (With<Children>, (Without<Enemy>, Without<BulletLauncher>))>,
 ) {
-    for (bullet_entity, mut bullet, mut velocity, parent) in &mut bullet_query {
+    for (bullet_launcher_entity, mut bullet_launcher, parent) in &mut bullet_launcher_query {
         if let Ok(parent_transform) = parent_query.get(parent.parent()) {
-            if bullet.target.is_none()
-                && let Some((enemy_entity, _)) =
-                    find_nearest_entity(*parent_transform, enemy_query.transmute_lens().query())
+            bullet_launcher.timer.tick(&metronome, *time);
+            if bullet_launcher.timer.just_finished(&metronome) {
+                commands.entity(bullet_launcher_entity).try_despawn();
+            } else if !bullet_launcher.timer.finished()
+                && bullet_launcher.last_fired_on_beat.map_or_else(
+                    || true,
+                    |b| metronome.is_beat_start_frame && b != bullet_launcher.timer.beats_elapsed(),
+                )
             {
-                bullet.target = Some(enemy_entity);
-            }
-
-            if let Some(target) = bullet.target
-                && let Ok((_, enemy_transform)) = enemy_query.get(target)
-            {
-                let direction = (enemy_transform.translation.xy()
-                    - parent_transform.translation.xy())
-                .normalize_or_zero();
-                velocity.linvel = direction * bullet.velocity;
-                commands.entity(bullet_entity).try_insert_if_new((
-                    Mesh2d(meshes.add(Circle::new(bullet.radius))),
+                log::info!(
+                    "{}: Firing bullet on beat {}",
+                    bullet_launcher.last_fired_on_beat.unwrap_or(255),
+                    bullet_launcher.timer.beats_elapsed()
+                );
+                bullet_launcher.last_fired_on_beat = Some(bullet_launcher.timer.beats_elapsed());
+                commands.spawn((
+                    Bullet {
+                        radius: bullet_launcher.radius,
+                        velocity: bullet_launcher.velocity,
+                        damage: bullet_launcher.damage,
+                        target: None,
+                    },
+                    Transform::from_xyz(
+                        parent_transform.translation.x,
+                        parent_transform.translation.y,
+                        2.,
+                    ),
+                    Velocity::zero(),
+                    AudioPlayer::new(bullet_sfx.fire.clone()),
+                    Mesh2d(meshes.add(Circle::new(bullet_launcher.radius))),
                     MeshMaterial2d(materials.add(Color::hsva(1., 1., 1., 1.))),
-                    Collider::ball(bullet.radius),
+                    Collider::ball(bullet_launcher.radius),
                     CollisionGroups::new(Group::GROUP_2, Group::ALL),
                     Sensor,
                     RigidBody::KinematicVelocityBased,
                 ));
-            } else {
-                commands.entity(bullet_entity).try_despawn();
             }
+        }
+    }
+}
+
+#[allow(clippy::needless_pass_by_value)]
+pub fn bullet_system(
+    mut bullet_query: Query<(&mut Bullet, &mut Velocity, &Transform)>,
+    mut enemy_query: Query<(Entity, &Transform), With<Enemy>>,
+) {
+    for (mut bullet, mut velocity, transform) in &mut bullet_query {
+        if bullet
+            .target
+            .map_or_else(|| true, |target| enemy_query.get(target).is_err())
+            && let Some((enemy_entity, _)) =
+                find_nearest_entity(*transform, enemy_query.transmute_lens().query())
+        {
+            bullet.target = Some(enemy_entity);
+        }
+
+        if let Some(target) = bullet.target
+            && let Ok((_, enemy_transform)) = enemy_query.get(target)
+        {
+            let direction =
+                (enemy_transform.translation.xy() - transform.translation.xy()).normalize_or_zero();
+            velocity.linvel = direction * bullet.velocity;
         }
     }
 }
