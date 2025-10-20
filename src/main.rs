@@ -108,7 +108,6 @@ fn main() {
                 .chain(),
         )
         .add_systems(First, metronome_system)
-        .add_systems(Update, bullet_launcher_system)
         .add_systems(
             Update,
             (
