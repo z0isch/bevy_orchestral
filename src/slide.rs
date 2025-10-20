@@ -48,7 +48,7 @@ pub fn slide_system(
     for (entity, kinematic_character_controller, velocity, mut slide) in &mut query {
         slide.timer.tick(time.delta());
         if slide.timer.just_finished() {
-            commands.entity(entity).remove::<Slide>();
+            commands.entity(entity).try_remove::<Slide>();
             if let Some(mut velocity) = velocity {
                 velocity.linvel = Vec2::ZERO;
             }
