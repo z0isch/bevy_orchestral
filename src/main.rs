@@ -36,7 +36,6 @@ use bevy_rapier2d::{
     },
 };
 use fraction::Fraction;
-use rand::{Rng, rng};
 
 use crate::{
     aoe::{aoe_bundle, aoe_collision_system, aoe_system, process_aoe_duration},
@@ -45,17 +44,11 @@ use crate::{
         bullet_collision_system, bullet_launcher_bundle, bullet_launcher_system, bullet_system,
         setup_bullet_sfx,
     },
-    enemy::Enemy,
-    health::{
-        Health, despawn_enemy_on_zero_health, health_bar_bundle, health_bar_system,
-        on_health_bar_add,
-    },
+    enemy::{EnemySpawnTimer, enemy_movement_system, spawn_enemy_system},
+    health::{despawn_enemy_on_zero_health, health_bar_system, on_health_bar_add},
     laser::{LaserSFX, laser_bundle, laser_system, setup_laser_sfx},
     map::setup_map,
-    metronome::{
-        Metronome, down_beats, initial_metronome, is_down_beat, metronome_system,
-        within_nanos_window,
-    },
+    metronome::{Metronome, down_beats, initial_metronome, metronome_system, within_nanos_window},
     note_highway::{
         beat_line_system, note_highway_system, on_beat_line_system, setup_note_highway,
     },
@@ -94,6 +87,7 @@ fn main() {
             WorldInspectorPlugin::new().run_if(input_toggle_active(false, KeyCode::Escape)),
         )
         .add_input_context::<Player>()
+        .add_input_context::<Song>()
         .add_systems(
             Startup,
             (
@@ -156,11 +150,6 @@ fn set_gravity(rapier_config: Query<&mut RapierConfiguration>) {
 #[derive(Resource)]
 struct GracePeriod(Fraction);
 
-#[derive(Resource)]
-struct EnemySpawnTimer {
-    timer: Timer,
-}
-
 #[allow(clippy::needless_pass_by_value)]
 fn setup(asset_server: Res<AssetServer>, mut commands: Commands) {
     commands.insert_resource(initial_metronome(SONG_BPM));
@@ -178,6 +167,16 @@ fn setup(asset_server: Res<AssetServer>, mut commands: Commands) {
     commands.spawn((
         AudioPlayer::new(asset_server.load::<AudioSource>(SONG_FILE)),
         PlaybackSettings::default().paused(),
+        Song,
+        actions!(Song[(
+            Action::<ToggleAudio>::new(),
+            Press::default(),
+            bindings![KeyCode::KeyX, GamepadButton::Start],
+        ),(
+            Action::<ToggleMuted>::new(),
+            Press::default(),
+            bindings![KeyCode::KeyZ, GamepadButton::Select],
+        )]),
     ));
 
     let player_sprite_scale = 0.15;
@@ -220,14 +219,6 @@ fn setup(asset_server: Res<AssetServer>, mut commands: Commands) {
                 Axial::left_stick(),
             )),
         ),(
-            Action::<ToggleAudio>::new(),
-            Press::default(),
-            bindings![KeyCode::KeyX, GamepadButton::Start],
-        ),(
-            Action::<ToggleMuted>::new(),
-            Press::default(),
-            bindings![KeyCode::KeyZ, GamepadButton::Select],
-        ),(
             Action::<SlideInputAction>::new(),
             Press::default(),
             bindings![KeyCode::Space, GamepadButton::LeftTrigger],
@@ -252,6 +243,9 @@ fn setup(asset_server: Res<AssetServer>, mut commands: Commands) {
     ));
 }
 
+#[derive(Component)]
+struct Song;
+
 #[derive(InputAction)]
 #[action_output(bool)]
 struct ToggleAudio;
@@ -263,7 +257,7 @@ struct ToggleMuted;
 #[allow(clippy::needless_pass_by_value)]
 fn toggle_audio(
     _toggle_audio: On<Fire<ToggleAudio>>,
-    mut audio_sink: Query<&mut AudioSink>,
+    mut audio_sink: Query<&mut AudioSink, With<Song>>,
     mut metronome: ResMut<Metronome>,
 ) {
     if let Ok(mut audio_sink) = audio_sink.single_mut() {
@@ -281,7 +275,7 @@ fn toggle_audio(
 #[allow(clippy::needless_pass_by_value)]
 fn toggle_muted(
     _toggle_muted: On<Fire<ToggleMuted>>,
-    mut audio_sink: Query<&mut AudioSink>,
+    mut audio_sink: Query<&mut AudioSink, With<Song>>,
     mut metronome: ResMut<Metronome>,
 ) {
     if let Ok(mut audio_sink) = audio_sink.single_mut() {
@@ -499,12 +493,12 @@ fn apply_note_played(
             NotePlayed::NorthNote => {
                 commands
                     .entity(player_entity)
-                    .with_child(laser_bundle(&laser_sfx, 1, 4, 3., 300.));
+                    .with_child(laser_bundle(&laser_sfx, 1, 4, 10., 500.));
             }
             NotePlayed::EastNote => {
                 commands
                     .entity(player_entity)
-                    .with_child(bullet_launcher_bundle(3.0, 150.0, 3, 4));
+                    .with_child(bullet_launcher_bundle(3.0, 150.0, 2, 4));
             }
             NotePlayed::SouthNote => {
                 commands
@@ -512,91 +506,6 @@ fn apply_note_played(
                     .with_child(aoe_bundle(&metronome, 30.0, 75.0, 2));
             }
             NotePlayed::WestNote => {}
-        }
-    }
-}
-
-#[allow(clippy::needless_pass_by_value)]
-fn spawn_enemy_system(
-    mut commands: Commands,
-    mut spawn_timer: ResMut<EnemySpawnTimer>,
-    time: Res<Time>,
-    metronome: Res<Metronome>,
-    player_query: Query<&Transform, With<Player>>,
-    asset_server: Res<AssetServer>,
-) {
-    if !metronome.started {
-        return;
-    }
-
-    spawn_timer.timer.tick(time.delta());
-
-    if spawn_timer.timer.just_finished()
-        && let Ok(player_transform) = player_query.single()
-    {
-        let mut rng = rng();
-        let angle = rng.random::<f32>() * std::f32::consts::TAU;
-        let offset = Vec2::new(angle.cos(), angle.sin()) * 100.0;
-        let spawn_pos = player_transform.translation.xy() + offset;
-
-        let enemy_sprite_scale = 0.3;
-        let mut sprite_transform = Transform::from_xyz(0., 0., 1.);
-        sprite_transform.scale = Vec3::new(enemy_sprite_scale, enemy_sprite_scale, 0.);
-
-        commands.spawn((
-            Transform::from_xyz(spawn_pos.x, spawn_pos.y, 2.),
-            RigidBody::Dynamic,
-            LockedAxes::ROTATION_LOCKED,
-            Collider::ball((45.0 / 2.0) * enemy_sprite_scale),
-            MovementSpeed(6.),
-            Enemy,
-            Velocity::zero(),
-            Health {
-                max_health: 5,
-                current_health: 5,
-            },
-            Visibility::default(),
-            children![
-                health_bar_bundle(),
-                (
-                    AseAnimation {
-                        animation: Animation::tag("idle-right")
-                            .with_repeat(AnimationRepeat::Loop)
-                            .with_direction(AnimationDirection::Forward)
-                            .with_speed(0.5),
-                        aseprite: asset_server.load("sprites/skunk.aseprite"),
-                    },
-                    Sprite::default(),
-                    sprite_transform,
-                    initial_bounce(1.2)
-                )
-            ],
-        ));
-    }
-}
-
-#[allow(clippy::needless_pass_by_value)]
-fn enemy_movement_system(
-    mut commands: Commands,
-    metronome: Res<Metronome>,
-    player_query: Query<&Transform, With<Player>>,
-    mut enemy_query: Query<(Entity, &MovementSpeed, &Transform), With<Enemy>>,
-) {
-    if metronome.started
-        && metronome.is_beat_start_frame
-        && is_down_beat(&metronome)
-        && let Ok(player_transform) = player_query.single()
-    {
-        for (entity, movement_speed, enemy_transform) in &mut enemy_query {
-            let mut rng = rng();
-            let speed_variation = rng.random_range(-0.2..=0.2);
-            let varied_velocity = movement_speed.0 * (1.0 + speed_variation);
-            commands.entity(entity).try_insert(initial_slide(
-                varied_velocity,
-                player_transform.translation.xy() - enemy_transform.translation.xy(),
-                1,
-                &metronome,
-            ));
         }
     }
 }

@@ -71,7 +71,6 @@ pub fn laser_system(
     mut materials: ResMut<Assets<ColorMaterial>>,
     rapier_context: ReadRapierContext,
     metronome: Res<Metronome>,
-    time: Res<Time>,
     mut commands: Commands,
     mut laser_query: Query<(Entity, &mut Laser, &mut Transform, &ChildOf)>,
     parent_query: Query<&Transform, (With<Children>, (Without<Enemy>, Without<Laser>))>,
@@ -107,7 +106,7 @@ pub fn laser_system(
             RigidBody::KinematicVelocityBased,
         ));
 
-        laser.timer.tick(&metronome, *time);
+        laser.timer.tick(&metronome);
         if laser.timer.just_finished(&metronome) {
             commands.entity(laser_entity).try_despawn();
         } else if !laser.timer.finished() {

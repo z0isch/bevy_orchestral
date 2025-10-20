@@ -1,4 +1,4 @@
-use bevy::{prelude::*, time::Stopwatch};
+use bevy::prelude::*;
 use fraction::Fraction;
 
 #[derive(Resource, Clone)]
@@ -105,7 +105,6 @@ pub fn nanos_from_beat(metronome: &Metronome, beat: u8) -> Fraction {
 pub struct MetronomeTimer {
     pub number_beats_duration: u8,
     timer_state: MetronomeTimerState,
-    pub stopwatch: Stopwatch,
 }
 
 #[derive(Debug)]
@@ -115,18 +114,16 @@ enum MetronomeTimerState {
 }
 
 impl MetronomeTimer {
-    pub fn new(number_beats_duration: u8) -> Self {
+    pub const fn new(number_beats_duration: u8) -> Self {
         Self {
             number_beats_duration,
             timer_state: MetronomeTimerState::NotStarted,
-            stopwatch: Stopwatch::new(),
         }
     }
-    pub fn tick(&mut self, metronome: &Metronome, time: Time) {
+    pub fn tick(&mut self, metronome: &Metronome) {
         if !metronome.started {
             return;
         }
-        self.stopwatch.tick(time.delta());
 
         match self.timer_state {
             MetronomeTimerState::NotStarted => {

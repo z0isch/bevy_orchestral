@@ -42,7 +42,7 @@ pub struct BulletLauncherBundle {
     transform: Transform,
 }
 
-pub fn bullet_launcher_bundle(
+pub const fn bullet_launcher_bundle(
     radius: f32,
     velocity: f32,
     damage: u128,
@@ -56,7 +56,6 @@ pub fn bullet_launcher_bundle(
             damage,
             last_fired_on_beat: None,
         },
-
         transform: Transform::from_xyz(0., 0., 2.),
     }
 }
@@ -69,13 +68,12 @@ pub fn bullet_launcher_system(
     mut materials: ResMut<Assets<ColorMaterial>>,
     mut commands: Commands,
     metronome: Res<Metronome>,
-    time: Res<Time>,
     mut bullet_launcher_query: Query<(Entity, &mut BulletLauncher, &ChildOf)>,
     parent_query: Query<&Transform, (With<Children>, (Without<Enemy>, Without<BulletLauncher>))>,
 ) {
     for (bullet_launcher_entity, mut bullet_launcher, parent) in &mut bullet_launcher_query {
         if let Ok(parent_transform) = parent_query.get(parent.parent()) {
-            bullet_launcher.timer.tick(&metronome, *time);
+            bullet_launcher.timer.tick(&metronome);
             if bullet_launcher.timer.just_finished(&metronome) {
                 commands.entity(bullet_launcher_entity).try_despawn();
             } else if !bullet_launcher.timer.finished()
