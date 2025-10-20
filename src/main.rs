@@ -44,7 +44,10 @@ use crate::{
         bullet_collision_system, bullet_launcher_bundle, bullet_launcher_system, bullet_system,
         setup_bullet_sfx,
     },
-    enemy::{EnemySpawnTimer, enemy_movement_system, spawn_enemy_system},
+    enemy::{
+        EnemySpawnTimer, raccoon_bullet_collision_system, raccoon_bullet_system,
+        raccoon_movement_system, skunk_movement_system, spawn_raccoon_system, spawn_skunk_system,
+    },
     health::{despawn_enemy_on_zero_health, health_bar_system, on_health_bar_add},
     laser::{LaserSFX, laser_bundle, laser_system, setup_laser_sfx},
     map::setup_map,
@@ -105,6 +108,23 @@ fn main() {
         .add_systems(
             Update,
             (
+                spawn_raccoon_system,
+                raccoon_movement_system,
+                raccoon_bullet_collision_system,
+                raccoon_bullet_system,
+            ),
+        )
+        .add_systems(
+            Update,
+            (
+                spawn_skunk_system,
+                spawn_skunk_system,
+                skunk_movement_system,
+            ),
+        )
+        .add_systems(
+            Update,
+            (
                 note_highway_system,
                 on_beat_line_system,
                 beat_line_system,
@@ -118,9 +138,7 @@ fn main() {
                 laser_system,
                 despawn_enemy_on_zero_health,
                 health_bar_system,
-                spawn_enemy_system,
                 bullet_collision_system,
-                enemy_movement_system,
                 slide_system,
                 player_animation,
             ),
@@ -155,7 +173,8 @@ fn setup(asset_server: Res<AssetServer>, mut commands: Commands) {
     commands.insert_resource(initial_metronome(SONG_BPM));
     commands.insert_resource(GracePeriod(Fraction::from(90u64 * 1_000_000)));
     commands.insert_resource(EnemySpawnTimer {
-        timer: Timer::from_seconds(0.5, TimerMode::Repeating),
+        skunk_timer: Timer::from_seconds(1., TimerMode::Repeating),
+        raccoon_timer: Timer::from_seconds(3., TimerMode::Repeating),
     });
     commands.spawn((
         Camera2d,
