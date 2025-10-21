@@ -31,8 +31,8 @@ use bevy_inspector_egui::quick::WorldInspectorPlugin;
 use bevy_rapier2d::{
     plugin::{NoUserData, RapierConfiguration, RapierPhysicsPlugin},
     prelude::{
-        Collider, CollisionGroups, Group, KinematicCharacterController, LockedAxes,
-        QueryFilterFlags, RigidBody, Velocity,
+        ActiveCollisionTypes, Collider, KinematicCharacterController, LockedAxes, QueryFilterFlags,
+        RigidBody, Velocity,
     },
 };
 use fraction::Fraction;
@@ -206,14 +206,11 @@ fn setup(asset_server: Res<AssetServer>, mut commands: Commands) {
         RigidBody::KinematicVelocityBased,
         KinematicCharacterController {
             filter_flags: QueryFilterFlags::ONLY_FIXED,
-            filter_groups: Some(CollisionGroups::new(
-                Group::GROUP_1,
-                Group::ALL - Group::GROUP_2,
-            )),
             ..default()
         },
         LockedAxes::ROTATION_LOCKED,
         Collider::capsule_y(100. * player_sprite_scale, 25. * player_sprite_scale),
+        ActiveCollisionTypes::KINEMATIC_KINEMATIC,
         MovementSpeed(0.5),
         Player,
         Velocity::zero(),

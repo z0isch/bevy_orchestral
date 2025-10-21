@@ -236,7 +236,6 @@ pub fn raccoon_movement_system(
                         Mesh2d(meshes.add(Circle::new(raccoon.bullet_radius))),
                         MeshMaterial2d(materials.add(Color::hsva(1., 1., 1., 1.))),
                         Collider::ball(raccoon.bullet_radius),
-                        CollisionGroups::new(Group::GROUP_1, Group::ALL),
                         Sensor,
                         RigidBody::KinematicVelocityBased,
                     ));

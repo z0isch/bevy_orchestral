@@ -99,7 +99,6 @@ pub fn bullet_launcher_system(
                     Mesh2d(meshes.add(Circle::new(bullet_launcher.radius))),
                     MeshMaterial2d(materials.add(Color::hsva(1., 1., 1., 1.))),
                     Collider::ball(bullet_launcher.radius),
-                    CollisionGroups::new(Group::GROUP_2, Group::ALL),
                     Sensor,
                     RigidBody::KinematicVelocityBased,
                 ));
