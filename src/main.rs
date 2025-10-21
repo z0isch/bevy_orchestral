@@ -173,8 +173,8 @@ fn setup(asset_server: Res<AssetServer>, mut commands: Commands) {
     commands.insert_resource(initial_metronome(SONG_BPM));
     commands.insert_resource(GracePeriod(Fraction::from(90u64 * 1_000_000)));
     commands.insert_resource(EnemySpawnTimer {
-        skunk_timer: Timer::from_seconds(1., TimerMode::Repeating),
-        raccoon_timer: Timer::from_seconds(3., TimerMode::Repeating),
+        skunk_timer: Timer::from_seconds(2., TimerMode::Repeating),
+        raccoon_timer: Timer::from_seconds(3.5, TimerMode::Repeating),
     });
     commands.spawn((
         Camera2d,

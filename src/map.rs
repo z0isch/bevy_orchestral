@@ -5,10 +5,13 @@ use bevy_ecs_tilemap::{
     map::{TilemapId, TilemapSize, TilemapTexture, TilemapTileSize, TilemapType},
     tiles::{TileBundle, TilePos, TileStorage, TileTextureIndex},
 };
-use bevy_rapier2d::prelude::Collider;
+use bevy_rapier2d::prelude::{Collider, RigidBody};
 use rand::{Rng, rng};
 
 use crate::{bounce::initial_tile_bounce, window_size::WindowSize};
+
+#[derive(Component, Debug)]
+pub struct BlocksProjectiles;
 
 #[allow(clippy::needless_pass_by_value)]
 pub fn setup_map(
@@ -111,7 +114,11 @@ pub fn setup_map(
                 ));
                 let on_edge = x == 0 || y == 0 || x == map_size.x - 1 || y == map_size.y - 1;
                 if !on_edge {
-                    tile.insert((Collider::ball(tile_size.x / 2.),));
+                    tile.insert((
+                        Collider::ball(tile_size.x / 2.),
+                        RigidBody::Fixed,
+                        BlocksProjectiles,
+                    ));
                 }
                 if let Some(tile_bounce) = tile_bounce {
                     tile.insert(initial_tile_bounce(TileTextureIndex(tile_bounce)));
@@ -137,18 +144,26 @@ pub fn setup_map(
     let width_offset = window_size.width as f32 / 4.;
 
     commands.spawn((
+        BlocksProjectiles,
+        RigidBody::Fixed,
         Transform::from_xyz(0., 1000. - tile_size.y + height_offset, 0.),
         Collider::cuboid(width_offset, 1000.),
     ));
     commands.spawn((
+        BlocksProjectiles,
+        RigidBody::Fixed,
         Transform::from_xyz(0., -1000. + tile_size.y - height_offset, 0.),
         Collider::cuboid(width_offset, 1000.),
     ));
     commands.spawn((
+        BlocksProjectiles,
+        RigidBody::Fixed,
         Transform::from_xyz(1000. - tile_size.x + width_offset, 0., 0.),
         Collider::cuboid(1000., height_offset),
     ));
     commands.spawn((
+        BlocksProjectiles,
+        RigidBody::Fixed,
         Transform::from_xyz(-1000. + tile_size.x - width_offset, 0., 0.),
         Collider::cuboid(1000., height_offset),
     ));

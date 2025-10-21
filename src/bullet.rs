@@ -4,6 +4,7 @@ use bevy_rapier2d::prelude::*;
 use crate::{
     enemy::Enemy,
     health::Health,
+    map::BlocksProjectiles,
     metronome::{Metronome, MetronomeTimer},
     nearest_entity::find_nearest_entity,
 };
@@ -101,6 +102,7 @@ pub fn bullet_launcher_system(
                     Collider::ball(bullet_launcher.radius),
                     Sensor,
                     RigidBody::KinematicVelocityBased,
+                    ActiveCollisionTypes::default() | ActiveCollisionTypes::KINEMATIC_STATIC,
                 ));
             }
         }
@@ -138,12 +140,20 @@ pub fn bullet_collision_system(
     rapier_context: ReadRapierContext,
     mut bullet_query: Query<(Entity, &Bullet)>,
     mut enemy_query: Query<(Entity, &mut Health), With<Enemy>>,
+    blocks_projectiles_query: Query<Entity, With<BlocksProjectiles>>,
 ) {
     for (bullet_entity, bullet) in &mut bullet_query {
         let rapier_context = rapier_context.single().unwrap();
         for (enemy_entity, mut health) in &mut enemy_query {
             if rapier_context.intersection_pair(bullet_entity, enemy_entity) == Some(true) {
                 health.current_health = health.current_health.saturating_sub(bullet.damage);
+                commands.entity(bullet_entity).try_despawn();
+            }
+        }
+        for blocks_projectiles_entity in blocks_projectiles_query {
+            if rapier_context.intersection_pair(bullet_entity, blocks_projectiles_entity)
+                == Some(true)
+            {
                 commands.entity(bullet_entity).try_despawn();
             }
         }

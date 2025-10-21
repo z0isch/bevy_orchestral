@@ -1,12 +1,13 @@
-use bevy::{log, prelude::*};
+use bevy::prelude::*;
 use bevy_aseprite_ultra::prelude::*;
-use bevy_rapier2d::prelude::*;
+use bevy_rapier2d::prelude::{RigidBody::Fixed, *};
 use rand::{Rng, rng};
 
 use crate::{
     MovementSpeed,
     bounce::initial_bounce,
     health::{Health, health_bar_bundle},
+    map::BlocksProjectiles,
     metronome::{Metronome, is_down_beat},
     player::Player,
     slide::initial_slide,
@@ -18,6 +19,7 @@ pub struct Enemy;
 #[derive(Component, Debug)]
 pub struct Raccoon {
     min_distance_squared_to_player: f32,
+    max_distance_squared_to_player: f32,
     bullet_radius: f32,
     bullet_velocity: f32,
 }
@@ -159,6 +161,7 @@ pub fn spawn_raccoon_system(
             Enemy,
             Raccoon {
                 min_distance_squared_to_player: 100.0 * 100.0,
+                max_distance_squared_to_player: 200.0 * 200.0,
                 bullet_radius: 5.0,
                 bullet_velocity: 30.0,
             },
@@ -205,6 +208,9 @@ pub fn raccoon_movement_system(
             let distance_squared_to_player = player_transform
                 .translation
                 .distance_squared(raccoon_transform.translation);
+            let towards_player =
+                player_transform.translation.xy() - raccoon_transform.translation.xy();
+
             let mut rng = rng();
             if distance_squared_to_player < raccoon.min_distance_squared_to_player {
                 let speed_variation = rng.random_range(-0.2..=0.2);
@@ -217,9 +223,16 @@ pub fn raccoon_movement_system(
                     1,
                     &metronome,
                 ));
+            } else if distance_squared_to_player > raccoon.max_distance_squared_to_player {
+                let speed_variation = rng.random_range(-0.2..=0.2);
+                let varied_velocity = movement_speed.0 * (1.0 + speed_variation);
+                commands.entity(entity).try_insert(initial_slide(
+                    varied_velocity,
+                    towards_player,
+                    1,
+                    &metronome,
+                ));
             } else {
-                let towards_player =
-                    player_transform.translation.xy() - raccoon_transform.translation.xy();
                 let should_shoot = rng.random_range(0.0..=1.0) < 0.25;
                 if should_shoot {
                     commands.spawn((
@@ -237,18 +250,9 @@ pub fn raccoon_movement_system(
                         MeshMaterial2d(materials.add(Color::hsva(1., 1., 1., 1.))),
                         Collider::ball(raccoon.bullet_radius),
                         Sensor,
+                        ActiveCollisionTypes::default() | ActiveCollisionTypes::KINEMATIC_STATIC,
                         RigidBody::KinematicVelocityBased,
                     ));
-                } else {
-                    let should_move = rng.random_range(0.0..=1.0) < 0.25;
-                    if should_move {
-                        commands.entity(entity).try_insert(initial_slide(
-                            movement_speed.0,
-                            towards_player,
-                            1,
-                            &metronome,
-                        ));
-                    }
                 }
             }
         }
@@ -279,11 +283,19 @@ pub fn raccoon_bullet_collision_system(
     rapier_context: ReadRapierContext,
     bullet_query: Query<Entity, With<RaccoonBullet>>,
     player_query: Query<Entity, With<Player>>,
+    blocks_projectiles_query: Query<Entity, With<BlocksProjectiles>>,
 ) {
     for bullet_entity in bullet_query {
         let rapier_context = rapier_context.single().unwrap();
-        for player_entity in player_query {
-            if rapier_context.intersection_pair(bullet_entity, player_entity) == Some(true) {
+        if let Ok(player_entity) = player_query.single()
+            && rapier_context.intersection_pair(bullet_entity, player_entity) == Some(true)
+        {
+            commands.entity(bullet_entity).try_despawn();
+        }
+        for blocks_projectiles_entity in blocks_projectiles_query {
+            if rapier_context.intersection_pair(bullet_entity, blocks_projectiles_entity)
+                == Some(true)
+            {
                 commands.entity(bullet_entity).try_despawn();
             }
         }
