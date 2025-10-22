@@ -1,6 +1,6 @@
 use bevy::prelude::*;
 use bevy_aseprite_ultra::prelude::*;
-use bevy_rapier2d::prelude::{RigidBody::Fixed, *};
+use bevy_rapier2d::prelude::*;
 use rand::{Rng, rng};
 
 use crate::{

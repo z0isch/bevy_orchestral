@@ -6,7 +6,9 @@ mod aoe;
 mod bounce;
 mod bullet;
 mod enemy;
+mod follower;
 mod health;
+mod instrument;
 mod laser;
 mod map;
 mod metronome;
@@ -27,6 +29,7 @@ use bevy_aseprite_ultra::{
 use bevy_ecs_tilemap::TilemapPlugin;
 use bevy_egui::EguiPlugin;
 use bevy_enhanced_input::prelude::{Press, *};
+use bevy_hotpatching_experiments::prelude::*;
 use bevy_inspector_egui::quick::WorldInspectorPlugin;
 use bevy_rapier2d::{
     plugin::{NoUserData, RapierConfiguration, RapierPhysicsPlugin},
@@ -45,10 +48,12 @@ use crate::{
         setup_bullet_sfx,
     },
     enemy::{
-        EnemySpawnTimer, raccoon_bullet_collision_system, raccoon_bullet_system,
+        Enemy, EnemySpawnTimer, raccoon_bullet_collision_system, raccoon_bullet_system,
         raccoon_movement_system, skunk_movement_system, spawn_raccoon_system, spawn_skunk_system,
     },
+    follower::follower_system,
     health::{despawn_enemy_on_zero_health, health_bar_system, on_health_bar_add},
+    instrument::{Violin, spawn_violin},
     laser::{LaserSFX, laser_bundle, laser_system, setup_laser_sfx},
     map::setup_map,
     metronome::{Metronome, down_beats, initial_metronome, metronome_system, within_nanos_window},
@@ -89,6 +94,7 @@ fn main() {
         .add_plugins(
             WorldInspectorPlugin::new().run_if(input_toggle_active(false, KeyCode::Escape)),
         )
+        .add_plugins(SimpleSubsecondPlugin::default())
         .add_input_context::<Player>()
         .add_input_context::<Song>()
         .add_systems(
@@ -105,6 +111,8 @@ fn main() {
                 .chain(),
         )
         .add_systems(First, metronome_system)
+        .add_systems(Update, (destroy_all_enemies, spawn_new_violin))
+        .add_systems(Update, follower_system)
         .add_systems(
             Update,
             (
@@ -306,6 +314,52 @@ fn toggle_muted(
     }
 }
 
+#[allow(clippy::needless_pass_by_value)]
+fn destroy_all_enemies(
+    input: Res<ButtonInput<KeyCode>>,
+    mut commands: Commands,
+    enemy_query: Query<Entity, With<Enemy>>,
+) {
+    if input.just_pressed(KeyCode::KeyC) {
+        for enemy_entity in enemy_query.iter() {
+            commands.entity(enemy_entity).try_despawn();
+        }
+    }
+}
+
+#[allow(clippy::needless_pass_by_value)]
+fn spawn_new_violin(
+    input: Res<ButtonInput<KeyCode>>,
+    mut commands: Commands,
+    asset_server: Res<AssetServer>,
+    player_query: Query<(Entity, &Transform), With<Player>>,
+    violin_query: Query<(Entity, &Transform), With<Violin>>,
+) {
+    if input.just_pressed(KeyCode::KeyV) {
+        if violin_query.is_empty()
+            && let Ok((player_entity, player_transform)) = player_query.single()
+        {
+            spawn_violin(
+                &mut commands,
+                asset_server,
+                player_entity,
+                30.,
+                player_transform.translation.xy(),
+            );
+        } else {
+            let last_violin = violin_query.iter().last();
+            if let Some((last_violin_entity, last_violin_transform)) = last_violin {
+                spawn_violin(
+                    &mut commands,
+                    asset_server,
+                    last_violin_entity,
+                    30.,
+                    last_violin_transform.translation.xy(),
+                );
+            }
+        }
+    }
+}
 #[derive(Component, Debug)]
 struct MovementSpeed(f32);
 
@@ -415,6 +469,7 @@ struct SouthNotePlayed();
 #[action_output(bool)]
 struct WestNotePlayed();
 
+#[hot]
 #[allow(clippy::needless_pass_by_value)]
 #[allow(clippy::too_many_arguments)]
 fn apply_north_note_played(
@@ -423,6 +478,7 @@ fn apply_north_note_played(
     metronome: Res<Metronome>,
     laser_sfx: Res<LaserSFX>,
     grace_period: Res<GracePeriod>,
+    violin_query: Query<Entity, With<Violin>>,
 ) {
     apply_note_played(
         NotePlayed::NorthNote,
@@ -431,9 +487,11 @@ fn apply_north_note_played(
         metronome,
         laser_sfx,
         grace_period,
+        violin_query,
     );
 }
 
+#[hot]
 #[allow(clippy::needless_pass_by_value)]
 #[allow(clippy::too_many_arguments)]
 fn apply_east_note_played(
@@ -442,6 +500,7 @@ fn apply_east_note_played(
     metronome: Res<Metronome>,
     laser_sfx: Res<LaserSFX>,
     grace_period: Res<GracePeriod>,
+    violin_query: Query<Entity, With<Violin>>,
 ) {
     apply_note_played(
         NotePlayed::EastNote,
@@ -450,9 +509,11 @@ fn apply_east_note_played(
         metronome,
         laser_sfx,
         grace_period,
+        violin_query,
     );
 }
 
+#[hot]
 #[allow(clippy::needless_pass_by_value)]
 #[allow(clippy::too_many_arguments)]
 fn apply_south_note_played(
@@ -461,6 +522,7 @@ fn apply_south_note_played(
     metronome: Res<Metronome>,
     laser_sfx: Res<LaserSFX>,
     grace_period: Res<GracePeriod>,
+    violin_query: Query<Entity, With<Violin>>,
 ) {
     apply_note_played(
         NotePlayed::SouthNote,
@@ -469,9 +531,11 @@ fn apply_south_note_played(
         metronome,
         laser_sfx,
         grace_period,
+        violin_query,
     );
 }
 
+#[hot]
 #[allow(clippy::needless_pass_by_value)]
 #[allow(clippy::too_many_arguments)]
 fn apply_west_note_played(
@@ -480,6 +544,7 @@ fn apply_west_note_played(
     metronome: Res<Metronome>,
     laser_sfx: Res<LaserSFX>,
     grace_period: Res<GracePeriod>,
+    violin_query: Query<Entity, With<Violin>>,
 ) {
     apply_note_played(
         NotePlayed::WestNote,
@@ -488,6 +553,7 @@ fn apply_west_note_played(
         metronome,
         laser_sfx,
         grace_period,
+        violin_query,
     );
 }
 
@@ -500,6 +566,7 @@ fn apply_note_played(
     metronome: Res<Metronome>,
     laser_sfx: Res<LaserSFX>,
     grace_period: Res<GracePeriod>,
+    violin_query: Query<Entity, With<Violin>>,
 ) {
     if down_beats()
         .iter()
@@ -507,14 +574,16 @@ fn apply_note_played(
     {
         match note_played {
             NotePlayed::NorthNote => {
-                commands
-                    .entity(player_entity)
-                    .with_child(laser_bundle(&laser_sfx, 1, 4, 10., 500.));
+                for violin_entity in violin_query.iter() {
+                    commands
+                        .entity(violin_entity)
+                        .with_child(laser_bundle(&laser_sfx, 1, 4, 10., 500.));
+                }
             }
             NotePlayed::EastNote => {
                 commands
                     .entity(player_entity)
-                    .with_child(bullet_launcher_bundle(3.0, 150.0, 2, 4));
+                    .with_child(bullet_launcher_bundle(3.0, 150.0, 2, 12));
             }
             NotePlayed::SouthNote => {
                 commands
