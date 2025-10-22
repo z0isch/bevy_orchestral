@@ -469,7 +469,6 @@ struct SouthNotePlayed();
 #[action_output(bool)]
 struct WestNotePlayed();
 
-#[hot]
 #[allow(clippy::needless_pass_by_value)]
 #[allow(clippy::too_many_arguments)]
 fn apply_north_note_played(
@@ -491,7 +490,6 @@ fn apply_north_note_played(
     );
 }
 
-#[hot]
 #[allow(clippy::needless_pass_by_value)]
 #[allow(clippy::too_many_arguments)]
 fn apply_east_note_played(
@@ -513,7 +511,6 @@ fn apply_east_note_played(
     );
 }
 
-#[hot]
 #[allow(clippy::needless_pass_by_value)]
 #[allow(clippy::too_many_arguments)]
 fn apply_south_note_played(
@@ -535,7 +532,6 @@ fn apply_south_note_played(
     );
 }
 
-#[hot]
 #[allow(clippy::needless_pass_by_value)]
 #[allow(clippy::too_many_arguments)]
 fn apply_west_note_played(
