@@ -473,6 +473,8 @@ struct WestNotePlayed();
 #[allow(clippy::too_many_arguments)]
 fn apply_north_note_played(
     note_played: On<Fire<NorthNotePlayed>>,
+    meshes: ResMut<Assets<Mesh>>,
+    materials: ResMut<Assets<ColorMaterial>>,
     commands: Commands,
     metronome: Res<Metronome>,
     laser_sfx: Res<LaserSFX>,
@@ -480,6 +482,8 @@ fn apply_north_note_played(
     violin_query: Query<Entity, With<Violin>>,
 ) {
     apply_note_played(
+        meshes,
+        materials,
         NotePlayed::NorthNote,
         note_played.context,
         commands,
@@ -494,6 +498,8 @@ fn apply_north_note_played(
 #[allow(clippy::too_many_arguments)]
 fn apply_east_note_played(
     note_played: On<Fire<EastNotePlayed>>,
+    meshes: ResMut<Assets<Mesh>>,
+    materials: ResMut<Assets<ColorMaterial>>,
     commands: Commands,
     metronome: Res<Metronome>,
     laser_sfx: Res<LaserSFX>,
@@ -501,6 +507,8 @@ fn apply_east_note_played(
     violin_query: Query<Entity, With<Violin>>,
 ) {
     apply_note_played(
+        meshes,
+        materials,
         NotePlayed::EastNote,
         note_played.context,
         commands,
@@ -515,6 +523,8 @@ fn apply_east_note_played(
 #[allow(clippy::too_many_arguments)]
 fn apply_south_note_played(
     note_played: On<Fire<SouthNotePlayed>>,
+    meshes: ResMut<Assets<Mesh>>,
+    materials: ResMut<Assets<ColorMaterial>>,
     commands: Commands,
     metronome: Res<Metronome>,
     laser_sfx: Res<LaserSFX>,
@@ -522,6 +532,8 @@ fn apply_south_note_played(
     violin_query: Query<Entity, With<Violin>>,
 ) {
     apply_note_played(
+        meshes,
+        materials,
         NotePlayed::SouthNote,
         note_played.context,
         commands,
@@ -536,6 +548,8 @@ fn apply_south_note_played(
 #[allow(clippy::too_many_arguments)]
 fn apply_west_note_played(
     note_played: On<Fire<WestNotePlayed>>,
+    meshes: ResMut<Assets<Mesh>>,
+    materials: ResMut<Assets<ColorMaterial>>,
     commands: Commands,
     metronome: Res<Metronome>,
     laser_sfx: Res<LaserSFX>,
@@ -543,6 +557,8 @@ fn apply_west_note_played(
     violin_query: Query<Entity, With<Violin>>,
 ) {
     apply_note_played(
+        meshes,
+        materials,
         NotePlayed::WestNote,
         note_played.context,
         commands,
@@ -556,6 +572,8 @@ fn apply_west_note_played(
 #[allow(clippy::needless_pass_by_value)]
 #[allow(clippy::too_many_arguments)]
 fn apply_note_played(
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut materials: ResMut<Assets<ColorMaterial>>,
     note_played: NotePlayed,
     player_entity: Entity,
     mut commands: Commands,
@@ -571,7 +589,16 @@ fn apply_note_played(
         match note_played {
             NotePlayed::NorthNote => {
                 for violin_entity in violin_query.iter() {
-                    commands.spawn(laser_bundle(&laser_sfx, 1, 4, 10., 500., violin_entity));
+                    commands.spawn(laser_bundle(
+                        &mut meshes,
+                        &mut materials,
+                        &laser_sfx,
+                        1,
+                        4,
+                        10.,
+                        500.,
+                        violin_entity,
+                    ));
                 }
             }
             NotePlayed::EastNote => {

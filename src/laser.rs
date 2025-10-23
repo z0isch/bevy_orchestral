@@ -22,14 +22,18 @@ pub struct Laser {
     shooter: Entity,
     direction: Option<Vec2>,
     length: f32,
-    width: f32,
 }
 
 #[derive(Bundle)]
 pub struct LaserBundle {
     laser: Laser,
-    transform: Transform,
     audio_player: AudioPlayer,
+    mesh: Mesh2d,
+    mesh_material: MeshMaterial2d<ColorMaterial>,
+    collider: Collider,
+    collision_groups: CollisionGroups,
+    sensor: Sensor,
+    rigid_body: RigidBody,
 }
 
 #[derive(Resource)]
@@ -44,7 +48,10 @@ pub fn setup_laser_sfx(asset_server: Res<AssetServer>, mut commands: Commands) {
     });
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn laser_bundle(
+    meshes: &mut ResMut<Assets<Mesh>>,
+    materials: &mut ResMut<Assets<ColorMaterial>>,
     laser_sfx: &Res<LaserSFX>,
     damage_per_beat: u128,
     number_beats_duration: u8,
@@ -59,28 +66,30 @@ pub fn laser_bundle(
             entities_damaged_on_beat: HashMap::new(),
             direction: None,
             length,
-            width,
             shooter,
         },
-        transform: Transform::from_xyz(0., 0., 2.),
         audio_player: AudioPlayer::new(laser_sfx.fire.clone()),
+        mesh: Mesh2d(meshes.add(Rectangle::new(width, length))),
+        mesh_material: MeshMaterial2d(materials.add(Color::hsva(1., 1., 1., 0.5))),
+        collider: Collider::cuboid(width / 2., length / 2.),
+        collision_groups: CollisionGroups::new(Group::GROUP_2, Group::ALL),
+        sensor: Sensor,
+        rigid_body: RigidBody::KinematicVelocityBased,
     }
 }
 
 #[allow(clippy::needless_pass_by_value)]
 #[allow(clippy::too_many_arguments)]
 pub fn laser_system(
-    mut meshes: ResMut<Assets<Mesh>>,
-    mut materials: ResMut<Assets<ColorMaterial>>,
     rapier_context: ReadRapierContext,
     metronome: Res<Metronome>,
     mut commands: Commands,
-    mut laser_query: Query<(Entity, &mut Laser, &mut Transform)>,
+    mut laser_query: Query<(Entity, &mut Laser)>,
     shooter_query: Query<&Transform, (Without<Enemy>, Without<Laser>)>,
     mut enemy_query: Query<(Entity, &mut Health, &Transform), (With<Enemy>, Without<Laser>)>,
 ) {
     let rapier_context = rapier_context.single().unwrap();
-    for (laser_entity, mut laser, mut laser_transform) in &mut laser_query {
+    for (laser_entity, mut laser) in &mut laser_query {
         if let Ok(shooter_transform) = shooter_query.get(laser.shooter) {
             let direction = laser.direction.get_or_insert_with(|| {
                 if let Some((_, enemy_transform)) =
@@ -94,20 +103,12 @@ pub fn laser_system(
                 }
             });
 
-            *laser_transform = *shooter_transform;
+            let mut laser_transform = *shooter_transform;
             laser_transform.rotate(Quat::from_rotation_z(
                 direction.y.atan2(direction.x) + FRAC_PI_2,
             ));
             laser_transform.translation += direction.extend(1.) * laser.length / 2.;
-
-            commands.entity(laser_entity).try_insert_if_new((
-                Mesh2d(meshes.add(Rectangle::new(laser.width, laser.length))),
-                MeshMaterial2d(materials.add(Color::hsva(1., 1., 1., 0.5))),
-                Collider::cuboid(laser.width / 2., laser.length / 2.),
-                CollisionGroups::new(Group::GROUP_2, Group::ALL),
-                Sensor,
-                RigidBody::KinematicVelocityBased,
-            ));
+            commands.entity(laser_entity).try_insert(laser_transform);
         }
 
         laser.timer.tick(&metronome);
