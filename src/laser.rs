@@ -19,7 +19,7 @@ pub struct Laser {
     damage_per_beat: u128,
     timer: MetronomeTimer,
     entities_damaged_on_beat: HashMap<u8, HashSet<Entity>>,
-    direction: Option<Vec2>,
+    transform: Option<Transform>,
     length: f32,
     width: f32,
 }
@@ -55,7 +55,7 @@ pub fn laser_bundle(
             damage_per_beat,
             timer: MetronomeTimer::new(number_beats_duration),
             entities_damaged_on_beat: HashMap::new(),
-            direction: None,
+            transform: None,
             length,
             width,
         },
@@ -78,7 +78,11 @@ pub fn laser_system(
 ) {
     let rapier_context = rapier_context.single().unwrap();
     for (laser_entity, mut laser, mut laser_transform, parent) in &mut laser_query {
-        if laser.direction.is_none() {
+        if let Some(transform) = laser.transform {
+            if transform != *laser_transform {
+                *laser_transform = transform;
+            }
+        } else {
             let direction = if let Ok(parent_transform) = parent_query.get(parent.parent())
                 && let Some((_, enemy_transform)) =
                     find_nearest_entity(*parent_transform, enemy_query.transmute_lens().query())
@@ -94,7 +98,7 @@ pub fn laser_system(
                 direction.y.atan2(direction.x) + FRAC_PI_2,
             ));
             laser_transform.translation = direction.extend(1.) * laser.length / 2.;
-            laser.direction = Some(direction);
+            laser.transform = Some(*laser_transform);
         }
 
         commands.entity(laser_entity).try_insert_if_new((
