@@ -51,9 +51,9 @@ use crate::{
         Enemy, EnemySpawnTimer, raccoon_bullet_collision_system, raccoon_bullet_system,
         raccoon_movement_system, skunk_movement_system, spawn_raccoon_system, spawn_skunk_system,
     },
-    follower::follower_system,
+    follower::{Follower, follower_system},
     health::{despawn_enemy_on_zero_health, health_bar_system, on_health_bar_add},
-    instrument::{Violin, spawn_violin},
+    instrument::{Tuba, Violin, spawn_tuba, spawn_violin},
     laser::{LaserSFX, laser_bundle, laser_system, setup_laser_sfx},
     map::setup_map,
     metronome::{Metronome, down_beats, initial_metronome, metronome_system, within_nanos_window},
@@ -111,7 +111,10 @@ fn main() {
                 .chain(),
         )
         .add_systems(First, metronome_system)
-        .add_systems(Update, (destroy_all_enemies, spawn_new_violin))
+        .add_systems(
+            Update,
+            (destroy_all_enemies, spawn_new_violin, spawn_new_tuba),
+        )
         .add_systems(Update, follower_system)
         .add_systems(
             Update,
@@ -333,10 +336,10 @@ fn spawn_new_violin(
     mut commands: Commands,
     asset_server: Res<AssetServer>,
     player_query: Query<(Entity, &Transform), With<Player>>,
-    violin_query: Query<(Entity, &Transform), With<Violin>>,
+    follower_query: Query<(Entity, &Transform), With<Follower>>,
 ) {
     if input.just_pressed(KeyCode::KeyV) {
-        if violin_query.is_empty()
+        if follower_query.is_empty()
             && let Ok((player_entity, player_transform)) = player_query.single()
         {
             spawn_violin(
@@ -347,19 +350,54 @@ fn spawn_new_violin(
                 player_transform.translation.xy(),
             );
         } else {
-            let last_violin = violin_query.iter().last();
-            if let Some((last_violin_entity, last_violin_transform)) = last_violin {
+            let last_follower = follower_query.iter().last();
+            if let Some((last_follower_entity, last_follower_transform)) = last_follower {
                 spawn_violin(
                     &mut commands,
                     asset_server,
-                    last_violin_entity,
+                    last_follower_entity,
                     30.,
-                    last_violin_transform.translation.xy(),
+                    last_follower_transform.translation.xy(),
                 );
             }
         }
     }
 }
+
+#[allow(clippy::needless_pass_by_value)]
+fn spawn_new_tuba(
+    input: Res<ButtonInput<KeyCode>>,
+    mut commands: Commands,
+    asset_server: Res<AssetServer>,
+    player_query: Query<(Entity, &Transform), With<Player>>,
+    follower_query: Query<(Entity, &Transform), With<Follower>>,
+) {
+    if input.just_pressed(KeyCode::KeyB) {
+        if follower_query.is_empty()
+            && let Ok((player_entity, player_transform)) = player_query.single()
+        {
+            spawn_tuba(
+                &mut commands,
+                asset_server,
+                player_entity,
+                30.,
+                player_transform.translation.xy(),
+            );
+        } else {
+            let last_follower = follower_query.iter().last();
+            if let Some((last_follower_entity, last_follower_transform)) = last_follower {
+                spawn_tuba(
+                    &mut commands,
+                    asset_server,
+                    last_follower_entity,
+                    30.,
+                    last_follower_transform.translation.xy(),
+                );
+            }
+        }
+    }
+}
+
 #[derive(Component, Debug)]
 struct MovementSpeed(f32);
 
@@ -480,6 +518,7 @@ fn apply_north_note_played(
     laser_sfx: Res<LaserSFX>,
     grace_period: Res<GracePeriod>,
     violin_query: Query<Entity, With<Violin>>,
+    tuba_query: Query<Entity, With<Tuba>>,
 ) {
     apply_note_played(
         meshes,
@@ -491,6 +530,7 @@ fn apply_north_note_played(
         laser_sfx,
         grace_period,
         violin_query,
+        tuba_query,
     );
 }
 
@@ -505,6 +545,7 @@ fn apply_east_note_played(
     laser_sfx: Res<LaserSFX>,
     grace_period: Res<GracePeriod>,
     violin_query: Query<Entity, With<Violin>>,
+    tuba_query: Query<Entity, With<Tuba>>,
 ) {
     apply_note_played(
         meshes,
@@ -516,6 +557,7 @@ fn apply_east_note_played(
         laser_sfx,
         grace_period,
         violin_query,
+        tuba_query,
     );
 }
 
@@ -530,6 +572,7 @@ fn apply_south_note_played(
     laser_sfx: Res<LaserSFX>,
     grace_period: Res<GracePeriod>,
     violin_query: Query<Entity, With<Violin>>,
+    tuba_query: Query<Entity, With<Tuba>>,
 ) {
     apply_note_played(
         meshes,
@@ -541,6 +584,7 @@ fn apply_south_note_played(
         laser_sfx,
         grace_period,
         violin_query,
+        tuba_query,
     );
 }
 
@@ -555,6 +599,7 @@ fn apply_west_note_played(
     laser_sfx: Res<LaserSFX>,
     grace_period: Res<GracePeriod>,
     violin_query: Query<Entity, With<Violin>>,
+    tuba_query: Query<Entity, With<Tuba>>,
 ) {
     apply_note_played(
         meshes,
@@ -566,6 +611,7 @@ fn apply_west_note_played(
         laser_sfx,
         grace_period,
         violin_query,
+        tuba_query,
     );
 }
 
@@ -581,6 +627,7 @@ fn apply_note_played(
     laser_sfx: Res<LaserSFX>,
     grace_period: Res<GracePeriod>,
     violin_query: Query<Entity, With<Violin>>,
+    tuba_query: Query<Entity, With<Tuba>>,
 ) {
     if down_beats()
         .iter()
@@ -602,9 +649,11 @@ fn apply_note_played(
                 }
             }
             NotePlayed::EastNote => {
-                commands
-                    .entity(player_entity)
-                    .with_child(bullet_launcher_bundle(3.0, 150.0, 2, 12));
+                for tuba_entity in tuba_query.iter() {
+                    commands
+                        .entity(tuba_entity)
+                        .with_child(bullet_launcher_bundle(3.0, 150.0, 2, 4));
+                }
             }
             NotePlayed::SouthNote => {
                 commands
