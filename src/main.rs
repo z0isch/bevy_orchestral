@@ -571,9 +571,7 @@ fn apply_note_played(
         match note_played {
             NotePlayed::NorthNote => {
                 for violin_entity in violin_query.iter() {
-                    commands
-                        .entity(violin_entity)
-                        .with_child(laser_bundle(&laser_sfx, 1, 4, 10., 500.));
+                    commands.spawn(laser_bundle(&laser_sfx, 1, 4, 10., 500., violin_entity));
                 }
             }
             NotePlayed::EastNote => {

@@ -19,7 +19,8 @@ pub struct Laser {
     damage_per_beat: u128,
     timer: MetronomeTimer,
     entities_damaged_on_beat: HashMap<u8, HashSet<Entity>>,
-    transform: Option<Transform>,
+    shooter: Entity,
+    direction: Option<Vec2>,
     length: f32,
     width: f32,
 }
@@ -49,15 +50,17 @@ pub fn laser_bundle(
     number_beats_duration: u8,
     width: f32,
     length: f32,
+    shooter: Entity,
 ) -> LaserBundle {
     LaserBundle {
         laser: Laser {
             damage_per_beat,
             timer: MetronomeTimer::new(number_beats_duration),
             entities_damaged_on_beat: HashMap::new(),
-            transform: None,
+            direction: None,
             length,
             width,
+            shooter,
         },
         transform: Transform::from_xyz(0., 0., 2.),
         audio_player: AudioPlayer::new(laser_sfx.fire.clone()),
@@ -72,43 +75,40 @@ pub fn laser_system(
     rapier_context: ReadRapierContext,
     metronome: Res<Metronome>,
     mut commands: Commands,
-    mut laser_query: Query<(Entity, &mut Laser, &mut Transform, &ChildOf)>,
-    parent_query: Query<&Transform, (With<Children>, (Without<Enemy>, Without<Laser>))>,
+    mut laser_query: Query<(Entity, &mut Laser, &mut Transform)>,
+    shooter_query: Query<&Transform, (Without<Enemy>, Without<Laser>)>,
     mut enemy_query: Query<(Entity, &mut Health, &Transform), (With<Enemy>, Without<Laser>)>,
 ) {
     let rapier_context = rapier_context.single().unwrap();
-    for (laser_entity, mut laser, mut laser_transform, parent) in &mut laser_query {
-        if let Some(transform) = laser.transform {
-            if transform != *laser_transform {
-                *laser_transform = transform;
-            }
-        } else {
-            let direction = if let Ok(parent_transform) = parent_query.get(parent.parent())
-                && let Some((_, enemy_transform)) =
-                    find_nearest_entity(*parent_transform, enemy_query.transmute_lens().query())
-            {
-                (enemy_transform.translation - parent_transform.translation)
-                    .xy()
-                    .normalize_or_zero()
-            } else {
-                Vec2::from_angle(rng().random_range(0.0..std::f32::consts::TAU))
-            };
+    for (laser_entity, mut laser, mut laser_transform) in &mut laser_query {
+        if let Ok(shooter_transform) = shooter_query.get(laser.shooter) {
+            let direction = laser.direction.get_or_insert_with(|| {
+                if let Some((_, enemy_transform)) =
+                    find_nearest_entity(*shooter_transform, enemy_query.transmute_lens().query())
+                {
+                    (enemy_transform.translation - shooter_transform.translation)
+                        .xy()
+                        .normalize_or_zero()
+                } else {
+                    Vec2::from_angle(rng().random_range(0.0..std::f32::consts::TAU))
+                }
+            });
 
+            *laser_transform = *shooter_transform;
             laser_transform.rotate(Quat::from_rotation_z(
                 direction.y.atan2(direction.x) + FRAC_PI_2,
             ));
-            laser_transform.translation = direction.extend(1.) * laser.length / 2.;
-            laser.transform = Some(*laser_transform);
-        }
+            laser_transform.translation += direction.extend(1.) * laser.length / 2.;
 
-        commands.entity(laser_entity).try_insert_if_new((
-            Mesh2d(meshes.add(Rectangle::new(laser.width, laser.length))),
-            MeshMaterial2d(materials.add(Color::hsva(1., 1., 1., 0.5))),
-            Collider::cuboid(laser.width / 2., laser.length / 2.),
-            CollisionGroups::new(Group::GROUP_2, Group::ALL),
-            Sensor,
-            RigidBody::KinematicVelocityBased,
-        ));
+            commands.entity(laser_entity).try_insert_if_new((
+                Mesh2d(meshes.add(Rectangle::new(laser.width, laser.length))),
+                MeshMaterial2d(materials.add(Color::hsva(1., 1., 1., 0.5))),
+                Collider::cuboid(laser.width / 2., laser.length / 2.),
+                CollisionGroups::new(Group::GROUP_2, Group::ALL),
+                Sensor,
+                RigidBody::KinematicVelocityBased,
+            ));
+        }
 
         laser.timer.tick(&metronome);
         if laser.timer.just_finished(&metronome) {
